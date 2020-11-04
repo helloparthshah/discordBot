@@ -3,3 +3,4 @@ discord.py
 youtube_dl
 google-api-python-client
 pynacl
+ffmpeg
