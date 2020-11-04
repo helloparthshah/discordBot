@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-# bot.py
 from googleapiclient.discovery import build
 import os
 
