@@ -8,6 +8,20 @@ from discord.ext import commands
 from discord.utils import get
 from discord import FFmpegPCMAudio
 from youtube_dl import YoutubeDL
+import ctypes
+import ctypes.util
+
+print("ctypes - Find opus:")
+a = ctypes.util.find_library('opus')
+print(a)
+
+print("Discord - Load Opus:")
+b = discord.opus.load_opus(a)
+print(b)
+
+print("Discord - Is loaded:")
+c = discord.opus.is_loaded()
+print(c)
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
