@@ -1,4 +1,3 @@
-os
 python-dotenv
 discord.py
 youtube_dl
