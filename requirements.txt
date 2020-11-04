@@ -1,3 +1,4 @@
 python-dotenv
 discord.py
 youtube_dl
+google-api-python-client
