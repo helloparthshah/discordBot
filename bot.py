@@ -29,7 +29,6 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 YT_KEY = os.getenv('YT_KEY')
 global_volume = 1.0
 
-
 bot = commands.Bot(command_prefix="/")
 
 
