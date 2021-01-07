@@ -1,6 +1,7 @@
 python-dotenv
 discord.py
 youtube_dl
+youtube-dl
 google-api-python-client
 pynacl
 ffmpeg
