@@ -102,12 +102,12 @@ def play_next(ctx):
             voice.source, volume=global_volume)
 
     else:
-        asyncio.sleep(90)  # wait 1 minute and 30 seconds
+        # await asyncio.sleep(90)  # wait 1 minute and 30 seconds
         if not voice.is_playing():
             asyncio.run_coroutine_threadsafe(
-                ctx.voice_client.disconnect(), ctx.loop)
+                ctx.voice_client.disconnect(), bot.loop)
             asyncio.run_coroutine_threadsafe(
-                ctx.channel.send("No more songs in queue."),ctx.loop)
+                ctx.channel.send("No more songs in queue."), bot.loop)
 
 
 @ bot.command()
