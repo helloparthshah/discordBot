@@ -127,7 +127,9 @@ async def next(ctx, *, query=None):
         voice.stop()
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
-        info = ydl.extract_info(_queue[0], download=False)
+        await ctx.channel.send(_queue[0])
+
+        info = ydl.extract_info(_queue.pop(), download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
         voice.is_playing()
@@ -138,8 +140,6 @@ async def next(ctx, *, query=None):
         voice.source = discord.PCMVolumeTransformer(
             voice.source, volume=global_volume)
 
-    await ctx.channel.send(_queue[0])
-    _queue.pop(0)
     print(_queue)
 
 
@@ -159,33 +159,37 @@ async def l(ctx, *, query=None):
     if(not ctx.author.voice):
         return await ctx.channel.send('Join a channel first')
 
-    YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True'}
-    FFMPEG_OPTIONS = {
-        'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
     # voice = get(bot.voice_clients, guild=ctx.guild)
     channel = ctx.author.voice.channel
+
     if(not ctx.voice_client):
         voice = await channel.connect()
     else:
         voice = ctx.voice_client
-        voice.stop()
+        # voice.stop()
 
-    # It will send the data in a .json format.
     video_link = query
+
+    if(voice.is_playing()):
+        _queue.append(video_link)
+        print(_queue)
+        await ctx.channel.send(video_link)
+        return
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
         info = ydl.extract_info(video_link, download=False)
-    URL = info['formats'][0]['url']
-    voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
-    voice.is_playing()
+        URL = info['formats'][0]['url']
+        voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
+                   after=lambda e: play_next(ctx))
+        voice.is_playing()
 
-    global global_volume
-    print(global_volume)
-    voice.source.volume = 1
-    voice.source = discord.PCMVolumeTransformer(
-        voice.source, volume=global_volume)
+        global global_volume
+        print(global_volume)
+        # voice.source.volume = 1
+        voice.source = discord.PCMVolumeTransformer(
+            voice.source, volume=global_volume)
 
-    await ctx.channel.send(query)
+    await ctx.channel.send(video_link)
 
 
 @ bot.command()
