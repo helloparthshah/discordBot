@@ -10,7 +10,7 @@ from discord import FFmpegPCMAudio
 from youtube_dl import YoutubeDL
 import ctypes
 import ctypes.util
-
+import asyncio
 
 print("ctypes - Find opus:")
 a = ctypes.util.find_library('opus')
@@ -31,6 +31,12 @@ global_volume = 1.0
 
 bot = commands.Bot(command_prefix="/")
 
+_queue = []
+
+YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True'}
+FFMPEG_OPTIONS = {
+    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
+
 
 @bot.command()
 async def play(ctx, *, query=None):
@@ -42,41 +48,106 @@ async def play(ctx, *, query=None):
     if(not ctx.author.voice):
         return await ctx.channel.send('Join a channel first')
 
-    YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True'}
-    FFMPEG_OPTIONS = {
-        'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
     # voice = get(bot.voice_clients, guild=ctx.guild)
     channel = ctx.author.voice.channel
+
+    if(not ctx.voice_client):
+        voice = await channel.connect()
+    else:
+        voice = ctx.voice_client
+        # voice.stop()
+
+    youtube = build("youtube", "v3", developerKey=YT_KEY)
+    search_response = youtube.search().list(
+        q=query, part="id,snippet", maxResults=1).execute()
+    vid = search_response['items'][0]['id']['videoId']
+    # It will send the data in a .json format.
+    video_link = 'https://www.youtube.com/watch?v=' + vid
+
+    if(voice.is_playing()):
+        _queue.append(video_link)
+        print(_queue)
+        await ctx.channel.send(video_link)
+        return
+
+    with YoutubeDL(YDL_OPTIONS) as ydl:
+        info = ydl.extract_info(video_link, download=False)
+        URL = info['formats'][0]['url']
+        voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
+                   after=lambda e: play_next(ctx))
+        voice.is_playing()
+
+        global global_volume
+        print(global_volume)
+        # voice.source.volume = 1
+        voice.source = discord.PCMVolumeTransformer(
+            voice.source, volume=global_volume)
+
+    await ctx.channel.send(video_link)
+
+
+def play_next(ctx):
+    voice = ctx.voice_client
+    if(len(_queue) >= 1):
+        ctx.channel.send(_queue[0])
+        info = YoutubeDL(YDL_OPTIONS).extract_info(
+            _queue.pop(0), download=False)
+        URL = info['formats'][0]['url']
+        voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
+                   after=lambda e: play_next(ctx))
+        global global_volume
+        print(global_volume)
+        # voice.source.volume = 1
+        voice.source = discord.PCMVolumeTransformer(
+            voice.source, volume=global_volume)
+
+    else:
+        asyncio.run_coroutine_threadsafe(voice.disconnect(ctx))
+        asyncio.run_coroutine_threadsafe(
+            ctx.channel.send("No more songs in queue."))
+
+
+@ bot.command()
+async def next(ctx, *, query=None):
+    if(not ctx.author.voice):
+        return await ctx.channel.send('Join a channel first')
+
+    if(len(_queue) == 0):
+        return await ctx.channel.send('No songs in queue')
+
+    # voice = get(bot.voice_clients, guild=ctx.guild)
+    channel = ctx.author.voice.channel
+
     if(not ctx.voice_client):
         voice = await channel.connect()
     else:
         voice = ctx.voice_client
         voice.stop()
 
-    youtube = build("youtube", "v3", developerKey=YT_KEY)
-    search_response = youtube.search().list(
-        q=query, part="id,snippet", maxResults=1).execute()
-
-    vid = search_response['items'][0]['id']['videoId']
-    # It will send the data in a .json format.
-    video_link = 'https://www.youtube.com/watch?v=' + vid
-
     with YoutubeDL(YDL_OPTIONS) as ydl:
-        info = ydl.extract_info(video_link, download=False)
-    URL = info['formats'][0]['url']
-    voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
-    voice.is_playing()
+        info = ydl.extract_info(_queue[0], download=False)
+        URL = info['formats'][0]['url']
+        voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
+        voice.is_playing()
 
-    global global_volume
-    print(global_volume)
-    voice.source.volume = 1
-    voice.source = discord.PCMVolumeTransformer(
-        voice.source, volume=global_volume)
+        global global_volume
+        print(global_volume)
+        voice.source.volume = 1
+        voice.source = discord.PCMVolumeTransformer(
+            voice.source, volume=global_volume)
 
-    await ctx.channel.send('https://www.youtube.com/watch?v=' + vid)
+    await ctx.channel.send(_queue[0])
+    _queue.pop(0)
+    print(_queue)
 
 
-@bot.command()
+@ bot.command()
+async def clear(ctx, *, query=None):
+    _queue.clear()
+    await ctx.channel.send('Cleard queue')
+
+
+@ bot.command()
 async def l(ctx, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
@@ -148,7 +219,7 @@ async def stop(ctx):
     await ctx.voice_client.disconnect()
 
 
-@bot.event
+@ bot.event
 async def on_ready():
     print('client ready')
 
