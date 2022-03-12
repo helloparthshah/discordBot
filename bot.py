@@ -32,7 +32,7 @@ YT_KEY = os.getenv('YT_KEY')
 global_volume = 1.0
 
 intents = discord.Intents.default()
-bot = commands.Bot(intents=intents)
+bot = discord.Client(intents=intents)
 slash = SlashCommand(bot, sync_commands=True)
 _queue = []
 
@@ -42,7 +42,7 @@ FFMPEG_OPTIONS = {
 
 
 @slash.slash(name="play")
-async def _play(ctx = SlashContext, *, query=None):
+async def _play(ctx=SlashContext, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
     elif not query:
@@ -89,7 +89,7 @@ async def _play(ctx = SlashContext, *, query=None):
     await ctx.channel.send(video_link)
 
 
-def play_next(ctx = SlashContext):
+def play_next(ctx=SlashContext):
     voice = ctx.voice_client
     if(len(_queue) >= 1):
         ctx.channel.send(_queue[0])
@@ -114,7 +114,7 @@ def play_next(ctx = SlashContext):
 
 
 @slash.slash(name="next")
-async def _next(ctx = SlashContext, *, query=None):
+async def _next(ctx=SlashContext, *, query=None):
     if(not ctx.author.voice):
         return await ctx.channel.send('Join a channel first')
 
@@ -148,13 +148,13 @@ async def _next(ctx = SlashContext, *, query=None):
 
 
 @slash.slash(name="clear")
-async def _clear(ctx = SlashContext, *, query=None):
+async def _clear(ctx=SlashContext, *, query=None):
     _queue.clear()
     await ctx.channel.send('Cleard queue')
 
 
 @slash.slash(name="link")
-async def _link(ctx = SlashContext, *, query=None):
+async def _link(ctx=SlashContext, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
     elif not query:
@@ -197,7 +197,7 @@ async def _link(ctx = SlashContext, *, query=None):
 
 
 @slash.slash(name="pause")
-async def _pause(ctx = SlashContext):
+async def _pause(ctx=SlashContext):
     voice = ctx.voice_client
     if voice.is_playing():
         voice.pause()
@@ -211,7 +211,7 @@ async def _resume(ctx):
 
 
 @slash.slash(name="volume")
-async def _volume(value: int,ctx = SlashContext):
+async def _volume(value: int, ctx=SlashContext):
     global global_volume
     voice = ctx.voice_client
     global_volume = float(value)/100
