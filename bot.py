@@ -75,7 +75,7 @@ async def play(ctx=SlashContext, *, query=None):
         info = ydl.extract_info(video_link, download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
-                   after=lambda e: await play_next(ctx))
+                   after=lambda e: play_next(ctx))
         voice.is_playing()
 
         global global_volume
@@ -87,20 +87,20 @@ async def play(ctx=SlashContext, *, query=None):
     await ctx.send(video_link)
 
 
-async def play_next(ctx=SlashContext):
+def play_next(ctx=SlashContext):
     voice = ctx.voice_client
     if(len(_queue) >= 1):
         info = YoutubeDL(YDL_OPTIONS).extract_info(
             _queue.pop(0), download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
-                   after=lambda e: await play_next(ctx))
+                   after=lambda e: play_next(ctx))
         global global_volume
         print(global_volume)
         # voice.source.volume = 1
         voice.source = discord.PCMVolumeTransformer(
             voice.source, volume=global_volume)
-        await ctx.send(_queue[0])
+        ctx.send(_queue[0])
     else:
         # await asyncio.sleep(90)  # wait 1 minute and 30 seconds
         if not voice.is_playing():
@@ -180,7 +180,7 @@ async def link(ctx=SlashContext, *, query=None):
         info = ydl.extract_info(video_link, download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
-                   after=lambda e: await play_next(ctx))
+                   after=lambda e: play_next(ctx))
         voice.is_playing()
 
         global global_volume
