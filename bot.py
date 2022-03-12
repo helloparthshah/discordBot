@@ -128,6 +128,7 @@ async def next(ctx=SlashContext, *, query=None):
         voice.stop()
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
+        await ctx.send(_queue[0])
         info = ydl.extract_info(_queue.pop(), download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
@@ -140,8 +141,6 @@ async def next(ctx=SlashContext, *, query=None):
             voice.source, volume=global_volume)
 
     print(_queue)
-    await ctx.send(_queue[0])
-
 
 @slash.slash(name="clear")
 async def clear(ctx=SlashContext, *, query=None):
