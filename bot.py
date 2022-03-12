@@ -44,10 +44,10 @@ async def play(ctx=SlashContext, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
     elif not query:
-        return await ctx.channel.send("No song is currently playing")
+        return await ctx.send("No song is currently playing")
 
     if(not ctx.author.voice):
-        return await ctx.channel.send('Join a channel first')
+        return await ctx.send('Join a channel first')
 
     # voice = get(bot.voice_clients, guild=ctx.guild)
     channel = ctx.author.voice.channel
@@ -68,7 +68,7 @@ async def play(ctx=SlashContext, *, query=None):
     if(voice.is_playing()):
         _queue.append(video_link)
         print(_queue)
-        await ctx.channel.send(video_link)
+        await ctx.send(video_link)
         return
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
@@ -84,13 +84,13 @@ async def play(ctx=SlashContext, *, query=None):
         voice.source = discord.PCMVolumeTransformer(
             voice.source, volume=global_volume)
 
-    await ctx.channel.send(video_link)
+    await ctx.send(video_link)
 
 
 def play_next(ctx=SlashContext):
     voice = ctx.voice_client
     if(len(_queue) >= 1):
-        ctx.channel.send(_queue[0])
+        ctx.send(_queue[0])
         info = YoutubeDL(YDL_OPTIONS).extract_info(
             _queue.pop(0), download=False)
         URL = info['formats'][0]['url']
@@ -108,16 +108,16 @@ def play_next(ctx=SlashContext):
             asyncio.run_coroutine_threadsafe(
                 ctx.voice_client.disconnect(), bot.loop)
             asyncio.run_coroutine_threadsafe(
-                ctx.channel.send("No more songs in queue."), bot.loop)
+                ctx.send("No more songs in queue."), bot.loop)
 
 
 @slash.slash(name="next")
 async def next(ctx=SlashContext, *, query=None):
     if(not ctx.author.voice):
-        return await ctx.channel.send('Join a channel first')
+        return await ctx.send('Join a channel first')
 
     if(len(_queue) == 0):
-        return await ctx.channel.send('No songs in queue')
+        return await ctx.send('No songs in queue')
 
     # voice = get(bot.voice_clients, guild=ctx.guild)
     channel = ctx.author.voice.channel
@@ -129,7 +129,7 @@ async def next(ctx=SlashContext, *, query=None):
         voice.stop()
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
-        await ctx.channel.send(_queue[0])
+        await ctx.send(_queue[0])
 
         info = ydl.extract_info(_queue.pop(), download=False)
         URL = info['formats'][0]['url']
@@ -148,7 +148,7 @@ async def next(ctx=SlashContext, *, query=None):
 @slash.slash(name="clear")
 async def clear(ctx=SlashContext, *, query=None):
     _queue.clear()
-    await ctx.channel.send('Cleard queue')
+    await ctx.send('Cleard queue')
 
 
 @slash.slash(name="link")
@@ -156,10 +156,10 @@ async def link(ctx=SlashContext, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
     elif not query:
-        return await ctx.channel.send("No song is currently playing")
+        return await ctx.send("No song is currently playing")
 
     if(not ctx.author.voice):
-        return await ctx.channel.send('Join a channel first')
+        return await ctx.send('Join a channel first')
 
     # voice = get(bot.voice_clients, guild=ctx.guild)
     channel = ctx.author.voice.channel
@@ -175,7 +175,7 @@ async def link(ctx=SlashContext, *, query=None):
     if(voice.is_playing()):
         _queue.append(video_link)
         print(_queue)
-        await ctx.channel.send(video_link)
+        await ctx.send(video_link)
         return
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
@@ -191,7 +191,7 @@ async def link(ctx=SlashContext, *, query=None):
         voice.source = discord.PCMVolumeTransformer(
             voice.source, volume=global_volume)
 
-    await ctx.channel.send(video_link)
+    await ctx.send(video_link)
 
 
 @slash.slash(name="pause")
@@ -217,7 +217,7 @@ async def volume(value: int, ctx=SlashContext):
     voice.source = discord.PCMVolumeTransformer(
         voice.source, volume=global_volume)
     print(global_volume)
-    await ctx.channel.send("Changing volume to "+str(voice.source.volume))
+    await ctx.send("Changing volume to "+str(voice.source.volume))
 
 
 @slash.slash(name="stop")
