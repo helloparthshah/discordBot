@@ -87,10 +87,9 @@ async def play(ctx=SlashContext, *, query=None):
     await ctx.send(video_link)
 
 
-def play_next(ctx=SlashContext):
+async def play_next(ctx=SlashContext):
     voice = ctx.voice_client
     if(len(_queue) >= 1):
-        ctx.send(_queue[0])
         info = YoutubeDL(YDL_OPTIONS).extract_info(
             _queue.pop(0), download=False)
         URL = info['formats'][0]['url']
@@ -101,7 +100,7 @@ def play_next(ctx=SlashContext):
         # voice.source.volume = 1
         voice.source = discord.PCMVolumeTransformer(
             voice.source, volume=global_volume)
-
+        await ctx.send(_queue[0])
     else:
         # await asyncio.sleep(90)  # wait 1 minute and 30 seconds
         if not voice.is_playing():
@@ -129,8 +128,6 @@ async def next(ctx=SlashContext, *, query=None):
         voice.stop()
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
-        await ctx.send(_queue[0])
-
         info = ydl.extract_info(_queue.pop(), download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
@@ -143,6 +140,7 @@ async def next(ctx=SlashContext, *, query=None):
             voice.source, volume=global_volume)
 
     print(_queue)
+    await ctx.send(_queue[0])
 
 
 @slash.slash(name="clear")
@@ -199,6 +197,9 @@ async def pause(ctx=SlashContext):
     voice = ctx.voice_client
     if voice.is_playing():
         voice.pause()
+        await ctx.send("Paused")
+    else:
+        await ctx.send("No song is currently playing")
 
 
 @slash.slash(name="resume")
@@ -206,6 +207,7 @@ async def resume(ctx):
     voice = ctx.voice_client
     if voice.is_paused():
         voice.resume()
+    await ctx.send("Resumed")
 
 
 @slash.slash(name="volume")
@@ -225,6 +227,7 @@ async def stop(ctx):
     global global_volume
     global_volume = 1
     await ctx.voice_client.disconnect()
+    await ctx.send("Disconnected")
 
 
 @ bot.event
