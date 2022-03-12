@@ -41,7 +41,7 @@ FFMPEG_OPTIONS = {
 
 
 @slash.slash(name="play")
-async def play(ctx = SlashContext, *, query=None):
+async def _play(ctx = SlashContext, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
     elif not query:
