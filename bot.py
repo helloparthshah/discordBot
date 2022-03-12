@@ -32,7 +32,7 @@ YT_KEY = os.getenv('YT_KEY')
 global_volume = 1.0
 
 bot = commands.Bot(command_prefix="/")
-slash = SlashCommand(bot)
+slash = SlashCommand(bot, sync_commands=True)
 _queue = []
 
 YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True'}
@@ -41,7 +41,7 @@ FFMPEG_OPTIONS = {
 
 
 @slash.slash(name="play")
-async def play(ctx, *, query=None):
+async def play(ctx = SlashContext, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
     elif not query:
@@ -88,7 +88,7 @@ async def play(ctx, *, query=None):
     await ctx.channel.send(video_link)
 
 
-def play_next(ctx):
+def play_next(ctx = SlashContext):
     voice = ctx.voice_client
     if(len(_queue) >= 1):
         ctx.channel.send(_queue[0])
@@ -113,7 +113,7 @@ def play_next(ctx):
 
 
 @slash.slash(name="next")
-async def next(ctx, *, query=None):
+async def next(ctx = SlashContext, *, query=None):
     if(not ctx.author.voice):
         return await ctx.channel.send('Join a channel first')
 
@@ -147,13 +147,13 @@ async def next(ctx, *, query=None):
 
 
 @slash.slash(name="clear")
-async def clear(ctx, *, query=None):
+async def clear(ctx = SlashContext, *, query=None):
     _queue.clear()
     await ctx.channel.send('Cleard queue')
 
 
 @slash.slash(name="link")
-async def link(ctx, *, query=None):
+async def link(ctx = SlashContext, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
     elif not query:
@@ -196,7 +196,7 @@ async def link(ctx, *, query=None):
 
 
 @slash.slash(name="pause")
-async def pause(ctx):
+async def pause(ctx = SlashContext):
     voice = ctx.voice_client
     if voice.is_playing():
         voice.pause()
@@ -210,7 +210,7 @@ async def resume(ctx):
 
 
 @slash.slash(name="volume")
-async def volume(ctx, value: int):
+async def volume(value: int,ctx = SlashContext):
     global global_volume
     voice = ctx.voice_client
     global_volume = float(value)/100
