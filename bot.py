@@ -211,7 +211,7 @@ async def resume(ctx):
 
 
 @slash.slash(name="volume")
-async def volume(ctx=SlashContext,value: int = 0):
+async def volume(ctx=SlashContext,*,value: int = 0):
     global global_volume
     voice = ctx.voice_client
     global_volume = float(value)/100
@@ -219,7 +219,7 @@ async def volume(ctx=SlashContext,value: int = 0):
     voice.source = discord.PCMVolumeTransformer(
         voice.source, volume=global_volume)
     print(global_volume)
-    await ctx.send("Changing volume to "+str(voice.source.volume))
+    await ctx.send("Changing volume to "+str(voice.source.volume*100)+"%")
 
 
 @slash.slash(name="stop")
