@@ -5,3 +5,4 @@ youtube-dl
 google-api-python-client
 pynacl
 ffmpeg
+discord-py-interactions

@@ -12,6 +12,7 @@ from youtube_dl import YoutubeDL
 import ctypes
 import ctypes.util
 import asyncio
+from discord_slash import SlashCommand, SlashContext
 
 print("ctypes - Find opus:")
 a = ctypes.util.find_library('opus')
@@ -31,7 +32,7 @@ YT_KEY = os.getenv('YT_KEY')
 global_volume = 1.0
 
 bot = commands.Bot(command_prefix="/")
-
+slash = SlashCommand(bot)
 _queue = []
 
 YDL_OPTIONS = {'format': 'bestaudio', 'noplaylist': 'True'}
@@ -39,7 +40,7 @@ FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 
 
-@bot.command(name="play")
+@slash.slash(name="play")
 async def play(ctx, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
@@ -111,7 +112,7 @@ def play_next(ctx):
                 ctx.channel.send("No more songs in queue."), bot.loop)
 
 
-@ bot.command(name="next")
+@slash.slash(name="next")
 async def next(ctx, *, query=None):
     if(not ctx.author.voice):
         return await ctx.channel.send('Join a channel first')
@@ -145,13 +146,13 @@ async def next(ctx, *, query=None):
     print(_queue)
 
 
-@ bot.command(name="clear")
+@slash.slash(name="clear")
 async def clear(ctx, *, query=None):
     _queue.clear()
     await ctx.channel.send('Cleard queue')
 
 
-@ bot.command(name="link")
+@slash.slash(name="link")
 async def link(ctx, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
@@ -194,21 +195,21 @@ async def link(ctx, *, query=None):
     await ctx.channel.send(video_link)
 
 
-@ bot.command(name="pause")
+@slash.slash(name="pause")
 async def pause(ctx):
     voice = ctx.voice_client
     if voice.is_playing():
         voice.pause()
 
 
-@ bot.command(name="resume")
+@slash.slash(name="resume")
 async def resume(ctx):
     voice = ctx.voice_client
     if voice.is_paused():
         voice.resume()
 
 
-@ bot.command(name="volume")
+@slash.slash(name="volume")
 async def volume(ctx, value: int):
     global global_volume
     voice = ctx.voice_client
@@ -220,7 +221,7 @@ async def volume(ctx, value: int):
     await ctx.channel.send("Changing volume to "+str(voice.source.volume))
 
 
-@ bot.command(name="stop")
+@slash.slash(name="stop")
 async def stop(ctx):
     global global_volume
     global_volume = 1
