@@ -5,8 +5,7 @@ import os
 
 import discord
 from dotenv import load_dotenv
-from discord.ext import commands
-from discord.utils import get
+from discord import Client, Intents, Embed
 from discord import FFmpegPCMAudio
 from youtube_dl import YoutubeDL
 import ctypes
@@ -31,8 +30,7 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 YT_KEY = os.getenv('YT_KEY')
 global_volume = 1.0
 
-intents = discord.Intents.default()
-bot = discord.Client(intents=intents)
+bot = Client(intents=Intents.default())
 slash = SlashCommand(bot, sync_commands=True)
 _queue = []
 
@@ -42,7 +40,7 @@ FFMPEG_OPTIONS = {
 
 
 @slash.slash(name="play")
-async def _play(ctx=SlashContext, *, query=None):
+async def play(ctx=SlashContext, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
     elif not query:
@@ -114,7 +112,7 @@ def play_next(ctx=SlashContext):
 
 
 @slash.slash(name="next")
-async def _next(ctx=SlashContext, *, query=None):
+async def next(ctx=SlashContext, *, query=None):
     if(not ctx.author.voice):
         return await ctx.channel.send('Join a channel first')
 
@@ -148,13 +146,13 @@ async def _next(ctx=SlashContext, *, query=None):
 
 
 @slash.slash(name="clear")
-async def _clear(ctx=SlashContext, *, query=None):
+async def clear(ctx=SlashContext, *, query=None):
     _queue.clear()
     await ctx.channel.send('Cleard queue')
 
 
 @slash.slash(name="link")
-async def _link(ctx=SlashContext, *, query=None):
+async def link(ctx=SlashContext, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
     elif not query:
@@ -197,21 +195,21 @@ async def _link(ctx=SlashContext, *, query=None):
 
 
 @slash.slash(name="pause")
-async def _pause(ctx=SlashContext):
+async def pause(ctx=SlashContext):
     voice = ctx.voice_client
     if voice.is_playing():
         voice.pause()
 
 
 @slash.slash(name="resume")
-async def _resume(ctx):
+async def resume(ctx):
     voice = ctx.voice_client
     if voice.is_paused():
         voice.resume()
 
 
 @slash.slash(name="volume")
-async def _volume(value: int, ctx=SlashContext):
+async def volume(value: int, ctx=SlashContext):
     global global_volume
     voice = ctx.voice_client
     global_volume = float(value)/100
@@ -223,7 +221,7 @@ async def _volume(value: int, ctx=SlashContext):
 
 
 @slash.slash(name="stop")
-async def _stop(ctx):
+async def stop(ctx):
     global global_volume
     global_volume = 1
     await ctx.voice_client.disconnect()
