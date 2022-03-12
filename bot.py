@@ -149,7 +149,7 @@ async def clear(ctx=SlashContext):
 
 
 @slash.slash(name="link")
-async def link(ctx=SlashContext, *, query=None):
+async def link(ctx=SlashContext, *, query):
     if not query:
         return await ctx.send("No link provided")
 
