@@ -211,7 +211,7 @@ async def resume(ctx):
 
 
 @slash.slash(name="volume")
-async def volume(value: int, ctx=SlashContext):
+async def volume(ctx=SlashContext,value: int = 0):
     global global_volume
     voice = ctx.voice_client
     global_volume = float(value)/100
