@@ -11,7 +11,6 @@ from youtube_dl import YoutubeDL
 import ctypes
 import ctypes.util
 import asyncio
-from discord.utils import get
 from discord_slash import SlashCommand, SlashContext
 
 print("ctypes - Find opus:")
@@ -42,23 +41,21 @@ FFMPEG_OPTIONS = {
 
 @slash.slash(name="play")
 async def play(ctx=SlashContext, *, query=None):
-    voice = get(bot.voice_clients, guild=ctx.guild)
-    if not query and voice.is_paused():
-        return voice.resume()
+    if not query and ctx.voice_client.is_paused():
+        return ctx.voice_client.resume()
     elif not query:
         return await ctx.send("No song is currently playing")
 
     if(not ctx.author.voice):
         return await ctx.send('Join a channel first')
 
-    # voice = get(bot.author.voice.channels, guild=ctx.guild)
+    # voice = get(bot.voice_clients, guild=ctx.guild)
     channel = ctx.author.voice.channel
 
-    if(not ctx.author.voice.channel):
+    if(not ctx.voice_client):
         voice = await channel.connect()
     else:
-        voice = get(bot.voice_clients, guild=ctx.guild)
-        # voice = ctx.author.voice.channel
+        voice = ctx.voice_client
         # voice.stop()
 
     youtube = build("youtube", "v3", developerKey=YT_KEY)
@@ -91,8 +88,7 @@ async def play(ctx=SlashContext, *, query=None):
 
 
 def play_next(ctx=SlashContext):
-    voice = get(bot.voice_clients, guild=ctx.guild)
-    # voice = ctx.author.voice.channel
+    voice = ctx.voice_client
     if(len(_queue) >= 1):
         info = YoutubeDL(YDL_OPTIONS).extract_info(
             _queue.pop(0), download=False)
@@ -109,7 +105,7 @@ def play_next(ctx=SlashContext):
         # await asyncio.sleep(90)  # wait 1 minute and 30 seconds
         if not voice.is_playing():
             asyncio.run_coroutine_threadsafe(
-                voice.disconnect(), bot.loop)
+                ctx.voice_client.disconnect(), bot.loop)
             asyncio.run_coroutine_threadsafe(
                 ctx.send("No more songs in queue."), bot.loop)
 
@@ -122,14 +118,13 @@ async def next(ctx=SlashContext, *, query=None):
     if(len(_queue) == 0):
         return await ctx.send('No songs in queue')
 
-    # voice = get(bot.author.voice.channels, guild=ctx.guild)
+    # voice = get(bot.voice_clients, guild=ctx.guild)
     channel = ctx.author.voice.channel
 
-    if(not ctx.author.voice.channel):
+    if(not ctx.voice_client):
         voice = await channel.connect()
     else:
-        voice = get(bot.voice_clients, guild=ctx.guild)
-        # voice = ctx.author.voice.channel
+        voice = ctx.voice_client
         voice.stop()
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
@@ -147,7 +142,6 @@ async def next(ctx=SlashContext, *, query=None):
 
     print(_queue)
 
-
 @slash.slash(name="clear")
 async def clear(ctx=SlashContext, *, query=None):
     _queue.clear()
@@ -156,23 +150,21 @@ async def clear(ctx=SlashContext, *, query=None):
 
 @slash.slash(name="link")
 async def link(ctx=SlashContext, *, query=None):
-    voice = get(bot.voice_clients, guild=ctx.guild)
-    if not query and voice.is_paused():
-        return voice.resume()
+    if not query and ctx.voice_client.is_paused():
+        return ctx.voice_client.resume()
     elif not query:
         return await ctx.send("No song is currently playing")
 
     if(not ctx.author.voice):
         return await ctx.send('Join a channel first')
 
-    # voice = get(bot.author.voice.channels, guild=ctx.guild)
+    # voice = get(bot.voice_clients, guild=ctx.guild)
     channel = ctx.author.voice.channel
 
-    if(not ctx.author.voice.channel):
+    if(not ctx.voice_client):
         voice = await channel.connect()
     else:
-        voice = get(bot.voice_clients, guild=ctx.guild)
-        # voice = ctx.author.voice.channel
+        voice = ctx.voice_client
         # voice.stop()
 
     video_link = query
@@ -201,8 +193,7 @@ async def link(ctx=SlashContext, *, query=None):
 
 @slash.slash(name="pause")
 async def pause(ctx=SlashContext):
-    voice = get(bot.voice_clients, guild=ctx.guild)
-    # voice = ctx.author.voice.channel
+    voice = ctx.voice_client
     if voice.is_playing():
         voice.pause()
         await ctx.send("Paused")
@@ -212,18 +203,16 @@ async def pause(ctx=SlashContext):
 
 @slash.slash(name="resume")
 async def resume(ctx):
-    voice = get(bot.voice_clients, guild=ctx.guild)
-    # voice = ctx.author.voice.channel
+    voice = ctx.voice_client
     if voice.is_paused():
         voice.resume()
     await ctx.send("Resumed")
 
 
 @slash.slash(name="volume")
-async def volume(ctx=SlashContext, *, value: int = 0):
+async def volume(ctx=SlashContext,*,value: int = 0):
     global global_volume
-    # voice = ctx.author.voice.channel
-    voice = get(bot.voice_clients, guild=ctx.guild)
+    voice = ctx.voice_client
     global_volume = float(value)/100
     voice.source.volume = 1
     voice.source = discord.PCMVolumeTransformer(
@@ -236,8 +225,7 @@ async def volume(ctx=SlashContext, *, value: int = 0):
 async def stop(ctx):
     global global_volume
     global_volume = 1
-    voice = get(bot.voice_clients, guild=ctx.guild)
-    await voice.disconnect()
+    await ctx.voice_client.disconnect()
     await ctx.send("Disconnected")
 
 
