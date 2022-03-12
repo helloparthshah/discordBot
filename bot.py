@@ -111,7 +111,7 @@ def play_next(ctx=SlashContext):
 
 
 @slash.slash(name="next")
-async def next(ctx=SlashContext, *, query=None):
+async def next(ctx=SlashContext):
     if(not ctx.author.voice):
         return await ctx.send('Join a channel first')
 
@@ -143,17 +143,15 @@ async def next(ctx=SlashContext, *, query=None):
     print(_queue)
 
 @slash.slash(name="clear")
-async def clear(ctx=SlashContext, *, query=None):
+async def clear(ctx=SlashContext):
     _queue.clear()
     await ctx.send('Cleard queue')
 
 
 @slash.slash(name="link")
 async def link(ctx=SlashContext, *, query=None):
-    if not query and ctx.voice_client.is_paused():
-        return ctx.voice_client.resume()
-    elif not query:
-        return await ctx.send("No song is currently playing")
+    if not query:
+        return await ctx.send("No link provided")
 
     if(not ctx.author.voice):
         return await ctx.send('Join a channel first')
