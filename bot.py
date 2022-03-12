@@ -75,7 +75,7 @@ async def play(ctx=SlashContext, *, query=None):
         info = ydl.extract_info(video_link, download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
-                   after=lambda e: play_next(ctx))
+                   after=lambda e: await play_next(ctx))
         voice.is_playing()
 
         global global_volume
@@ -94,7 +94,7 @@ async def play_next(ctx=SlashContext):
             _queue.pop(0), download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
-                   after=lambda e: play_next(ctx))
+                   after=lambda e: await play_next(ctx))
         global global_volume
         print(global_volume)
         # voice.source.volume = 1
@@ -180,7 +180,7 @@ async def link(ctx=SlashContext, *, query=None):
         info = ydl.extract_info(video_link, download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
-                   after=lambda e: play_next(ctx))
+                   after=lambda e: await play_next(ctx))
         voice.is_playing()
 
         global global_volume
