@@ -1,4 +1,6 @@
 #!/usr/bin/python3
+from dis import disco
+import random
 from unicodedata import name
 from googleapiclient.discovery import build
 import os
@@ -11,6 +13,7 @@ from youtube_dl import YoutubeDL
 import ctypes
 import ctypes.util
 import asyncio
+from discord.ext import tasks, commands
 from discord_slash import SlashCommand, SlashContext
 
 print("ctypes - Find opus:")
@@ -39,7 +42,7 @@ FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 
 
-@slash.slash(name="play")
+@slash.slash(name="play", description="Play a song from YouTube",)
 async def play(ctx=SlashContext, *, query=None):
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
@@ -68,14 +71,22 @@ async def play(ctx=SlashContext, *, query=None):
     if(voice.is_playing()):
         _queue.append(video_link)
         print(_queue)
-        await ctx.send(video_link)
+        embed = discord.Embed(
+            title="Added to queue", color=0x00ff00)
+        embed.set_author(name=ctx.author.name,
+                         icon_url=ctx.author.avatar_url)
+        embed.set_thumbnail(
+            url=search_response['items'][0]['snippet']['thumbnails']['default']['url'])
+        await ctx.send(embed=embed)
+        # ctx.send("Added to queue")
+        # await ctx.send(video_link)
         return
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
         info = ydl.extract_info(video_link, download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
-                   after=lambda e: play_next(ctx))
+                   after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
         voice.is_playing()
 
         global global_volume
@@ -83,40 +94,53 @@ async def play(ctx=SlashContext, *, query=None):
         # voice.source.volume = 1
         voice.source = discord.PCMVolumeTransformer(
             voice.source, volume=global_volume)
+    # Send emebed video link and title as song name
+    embed = discord.Embed(title=info['title'], url=video_link, color=0x00ff00)
+    embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
+    embed.set_thumbnail(url=info['thumbnail'])
+    await ctx.send(embed=embed)
 
-    await ctx.send(video_link)
 
-
-def play_next(ctx=SlashContext):
+async def play_next(ctx=SlashContext):
     voice = ctx.voice_client
     if(len(_queue) >= 1):
         info = YoutubeDL(YDL_OPTIONS).extract_info(
             _queue.pop(0), download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
-                   after=lambda e: play_next(ctx))
+                   after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
         global global_volume
         print(global_volume)
         # voice.source.volume = 1
         voice.source = discord.PCMVolumeTransformer(
             voice.source, volume=global_volume)
-        ctx.send(_queue[0])
+        embed = discord.Embed(
+            title=info['title'], url=info['webpage_url'], color=0x00ff00)
+        embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
+        embed.set_thumbnail(url=info['thumbnail'])
+        await ctx.send(embed=embed)
     else:
         # await asyncio.sleep(90)  # wait 1 minute and 30 seconds
         if not voice.is_playing():
+            embed = discord.Embed(
+                title="No more songs in queue", color=0x00ff00)
+            embed.set_author(name=ctx.author.name,
+                             icon_url=ctx.author.avatar_url)
             asyncio.run_coroutine_threadsafe(
                 ctx.voice_client.disconnect(), bot.loop)
             asyncio.run_coroutine_threadsafe(
-                ctx.send("No more songs in queue."), bot.loop)
+                await ctx.send(embed=embed), bot.loop)
 
 
-@slash.slash(name="next")
+@slash.slash(name="next", description="Play the next song in queue")
 async def next(ctx=SlashContext):
     if(not ctx.author.voice):
-        return await ctx.send('Join a channel first')
+        embed = discord.Embed(title="Join a channel first", color=0x00ff00)
+        return await ctx.send(embed=embed)
 
     if(len(_queue) == 0):
-        return await ctx.send('No songs in queue')
+        embed = discord.Embed(title="No more songs in queue", color=0x00ff00)
+        return await ctx.send(embed=embed)
 
     # voice = get(bot.voice_clients, guild=ctx.guild)
     channel = ctx.author.voice.channel
@@ -128,7 +152,11 @@ async def next(ctx=SlashContext):
         voice.stop()
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
-        await ctx.send(_queue[0])
+        embed = discord.Embed(
+            title=info['title'], url=_queue[0], color=0x00ff00)
+        embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
+        embed.set_thumbnail(url=info['thumbnail'])
+        await ctx.send(embed=embed)
         info = ydl.extract_info(_queue.pop(), download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
@@ -142,13 +170,16 @@ async def next(ctx=SlashContext):
 
     print(_queue)
 
-@slash.slash(name="clear")
+
+@slash.slash(name="clear", description="Clear the queue")
 async def clear(ctx=SlashContext):
     _queue.clear()
-    await ctx.send('Cleard queue')
+    embed = discord.Embed(title="Queue cleared", color=0x00ff00)
+    embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
+    await ctx.send(embed=embed)
 
 
-@slash.slash(name="link")
+@slash.slash(name="link", description="Play a song using a link")
 async def link(ctx=SlashContext, *, query):
     if not query:
         return await ctx.send("No link provided")
@@ -177,7 +208,7 @@ async def link(ctx=SlashContext, *, query):
         info = ydl.extract_info(video_link, download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
-                   after=lambda e: play_next(ctx))
+                   after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
         voice.is_playing()
 
         global global_volume
@@ -189,26 +220,32 @@ async def link(ctx=SlashContext, *, query):
     await ctx.send(video_link)
 
 
-@slash.slash(name="pause")
+@slash.slash(name="pause", description="Pause the current song")
 async def pause(ctx=SlashContext):
     voice = ctx.voice_client
     if voice.is_playing():
         voice.pause()
-        await ctx.send("Paused")
+        await ctx.send(embed=discord.Embed(
+            title="Paused", color=0x00ff00))
     else:
-        await ctx.send("No song is currently playing")
+        await ctx.send(embed=discord.Embed(
+            title="Not playing", color=0x00ff00))
 
 
-@slash.slash(name="resume")
+@slash.slash(name="resume", description="Resume the current song")
 async def resume(ctx):
     voice = ctx.voice_client
     if voice.is_paused():
         voice.resume()
-    await ctx.send("Resumed")
+    await ctx.send(embed=discord.Embed(
+        title="Resumed", color=0x00ff00))
 
 
-@slash.slash(name="volume")
-async def volume(ctx=SlashContext,*,value: int = 0):
+@slash.slash(name="volume", description="Change the volume")
+async def volume(ctx=SlashContext, *, value: int = 0):
+    if not ctx.voice_client:
+        return await ctx.send(embed=discord.Embed(
+            title="Join a channel first", color=0x00ff00))
     global global_volume
     voice = ctx.voice_client
     global_volume = float(value)/100
@@ -216,10 +253,13 @@ async def volume(ctx=SlashContext,*,value: int = 0):
     voice.source = discord.PCMVolumeTransformer(
         voice.source, volume=global_volume)
     print(global_volume)
-    await ctx.send("Changing volume to "+str(voice.source.volume*100)+"%")
+    embed = discord.Embed(title="Volume changed to " +
+                          str(voice.source.volume*100)+"%", color=0x00ff00)
+    embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
+    await ctx.send(embed=embed)
 
 
-@slash.slash(name="stop")
+@slash.slash(name="stop", description="Stop the current song and leave the channel")
 async def stop(ctx):
     global global_volume
     global_volume = 1
@@ -227,7 +267,33 @@ async def stop(ctx):
     await ctx.send("Disconnected")
 
 
-@ bot.event
+@slash.slash(name="queue", description="Show the current queue")
+async def queue(ctx=SlashContext):
+    if(len(_queue) == 0):
+        await ctx.send("Queue is empty")
+        return
+
+    embed = discord.Embed(title="Queue", color=0x00ff00)
+    embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
+    for i in range(len(_queue)):
+        embed.add_field(name=str(i+1)+". ", value=_queue[i], inline=False)
+    await ctx.send(embed=embed)
+
+
+@bot.event
+async def on_message(message):
+    mention = str(bot.user.id)
+    if mention in message.content:
+        if(str(message.author) == "GatoSecksual#6689"):
+            await message.channel.send("🥫")
+        else:
+            embed = discord.Embed(
+                title="Thank you for using my bot",
+                description="I am a bot created by <@!279174239972491276>",)
+            await message.channel.send(embed=embed)
+
+
+@bot.event
 async def on_ready():
     print('client ready')
 
