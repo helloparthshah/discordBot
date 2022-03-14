@@ -2,6 +2,7 @@
 from dis import disco
 import random
 from unicodedata import name
+import requests
 from googleapiclient.discovery import build
 import os
 
@@ -278,6 +279,17 @@ async def queue(ctx=SlashContext):
     for i in range(len(_queue)):
         embed.add_field(name=str(i+1)+". ", value=_queue[i], inline=False)
     await ctx.send(embed=embed)
+
+
+@slash.slash(name="yo_mama", description="Yo mama")
+async def yo_mama(ctx=SlashContext, *, user: discord.Member):
+    # send a get request to https://api.yomomma.info/
+    # read the response and send it as a message
+    response = requests.get('https://api.yomomma.info/')
+    data = response.json()
+    await ctx.send(user.mention)
+    await ctx.send(embed=discord.Embed(
+        title=data['joke'], color=0x00ff00))
 
 
 @bot.event
