@@ -7,3 +7,4 @@ pynacl
 ffmpeg
 discord-py-interactions
 discord-py-slash-command
+pillow

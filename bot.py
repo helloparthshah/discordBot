@@ -1,11 +1,7 @@
 #!/usr/bin/python3
-from dis import disco
 from io import BytesIO
-import random
-from PIL import Image, ImageFilter
+from PIL import Image
 from unicodedata import name
-from urllib import response
-from numpy import number
 import requests
 from googleapiclient.discovery import build
 import os
@@ -18,7 +14,6 @@ from youtube_dl import YoutubeDL
 import ctypes
 import ctypes.util
 import asyncio
-from discord.ext import tasks, commands
 from discord_slash import SlashCommand, SlashContext
 
 print("ctypes - Find opus:")
