@@ -1,7 +1,11 @@
 #!/usr/bin/python3
 from dis import disco
+from io import BytesIO
 import random
+from PIL import Image, ImageFilter
 from unicodedata import name
+from urllib import response
+from numpy import number
 import requests
 from googleapiclient.discovery import build
 import os
@@ -290,6 +294,25 @@ async def yo_mama(ctx=SlashContext, *, user: discord.Member):
     await ctx.send(user.mention)
     await ctx.send(embed=discord.Embed(
         title=data['joke'], color=0x00ff00))
+
+
+@slash.slash(name="remove_bg", description="Remove the background")
+async def remove_bg(ctx=SlashContext, *, user: discord.Member):
+    # User remove.bg to remove the background
+    # TypeError: a bytes-like object is required, not 'coroutine'
+    image = Image.open(BytesIO(requests.get(user.avatar_url).content))
+    image.save('temp.png')
+    API_KEY = "dvawjbcfnePMSwHcmGBZyqSG"
+    response = requests.post(
+        'https://api.remove.bg/v1.0/removebg',
+        files={'image_file': open('./temp.png', 'rb')},
+        data={'size': 'auto'},
+        headers={'X-Api-Key': API_KEY},
+    )
+    if response.status_code == requests.codes.ok:
+        with open('temp.png', 'wb') as out:
+            out.write(response.content)
+        await ctx.send(file=discord.File('temp.png'))
 
 
 @bot.event
