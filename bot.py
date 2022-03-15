@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 from io import BytesIO
+from urllib import response
 from PIL import Image
 from unicodedata import name
 import requests
@@ -31,6 +32,8 @@ print(c)
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 YT_KEY = os.getenv('YT_KEY')
+REMOVE_BG_KEY=os.getenv('REMOVE_BG_KEY')
+OPEN_WEATHER_KEY=os.getenv('OPEN_WEATHER_KEY')
 global_volume = 1.0
 
 bot = Client(intents=Intents.default())
@@ -297,18 +300,40 @@ async def remove_bg(ctx=SlashContext, *, user: discord.Member):
     # TypeError: a bytes-like object is required, not 'coroutine'
     image = Image.open(BytesIO(requests.get(user.avatar_url).content))
     image.save('temp.png')
-    API_KEY = "dvawjbcfnePMSwHcmGBZyqSG"
     response = requests.post(
         'https://api.remove.bg/v1.0/removebg',
         files={'image_file': open('./temp.png', 'rb')},
         data={'size': 'auto'},
-        headers={'X-Api-Key': API_KEY},
+        headers={'X-Api-Key': REMOVE_BG_KEY},
     )
     if response.status_code == requests.codes.ok:
         with open('temp.png', 'wb') as out:
             out.write(response.content)
         await ctx.send(file=discord.File('temp.png'))
 
+@slash.slash(name="weather", description="Get the weather")
+async def weather(ctx=SlashContext, *, city: str):
+    response = requests.get(
+        'http://api.openweathermap.org/data/2.5/weather?q='+city+'&appid='+OPEN_WEATHER_KEY)
+    data = response.json()
+    embed = discord.Embed(title="Weather", color=0x00ff00)
+    embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
+    embed.add_field(name="City", value=city, inline=False)
+    embed.add_field(name="Temperature", value=str(
+        round(data['main']['temp']-273.15))+"°C", inline=False)
+    embed.add_field(name="Description", value=data['weather'][0]['description'], inline=False)
+    await ctx.send(embed=embed)
+
+@slash.slash(name="remind_me", description="Remind you about something after a certain time")
+async def remind_me(ctx=SlashContext, *, time: str, message: str):
+    embed=discord.Embed(title="Reminder", color=0x00ff00)
+    embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
+    embed.add_field(name="Message", value=message, inline=False)
+    embed.add_field(name="Time", value=time, inline=False)
+    await ctx.send(embed=embed)
+    await asyncio.sleep(int(time))
+    await ctx.send(ctx.author.mention)
+    await ctx.send(message)
 
 @bot.event
 async def on_message(message):
