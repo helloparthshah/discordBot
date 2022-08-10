@@ -412,7 +412,7 @@ Started = False
 async def reminder():
     global Started
     print("Reminder")
-    streams = getStreams("rust")
+    streams = getStreams("rocket league")
     if(len(streams) > 0):
         if(not Started):
             Started = True
