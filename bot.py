@@ -412,13 +412,14 @@ Started = False
 async def reminder():
     global Started
     print("Reminder")
-    streams = getStreams("rocket league")
+    streams = getStreams("rust")
     if(len(streams) > 0):
         if(not Started):
             Started = True
             channel = bot.get_channel(1006713461474066513)
-            await channel.send("Rocket League is live!")
-            embed = discord.Embed(title="rust streams", color=0x00ff00)
+            allowed_mentions = discord.AllowedMentions(everyone=True)
+            await channel.send(content="@everyone", allowed_mentions=allowed_mentions)
+            embed = discord.Embed(title="Rocket League drops are live!", color=0x00ff00)
             for stream in streams:
                 if(stream['node']['broadcaster']):
                     embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
