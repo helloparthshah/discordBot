@@ -162,13 +162,15 @@ async def next(ctx=SlashContext):
         voice = ctx.voice_client
         voice.stop()
 
+    await ctx.send("Playing next song")
+
     with YoutubeDL(YDL_OPTIONS) as ydl:
+        info = ydl.extract_info(_queue.pop().link, download=False)
         embed = discord.Embed(
             title=info['title'], url=_queue[0].link, color=0x00ff00)
         embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
         embed.set_thumbnail(url=info['thumbnail'])
         await ctx.send(embed=embed)
-        info = ydl.extract_info(_queue.pop().link, download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
         voice.is_playing()
