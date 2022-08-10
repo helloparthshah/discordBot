@@ -6,7 +6,6 @@ from unicodedata import name
 import requests
 from googleapiclient.discovery import build
 import os
-
 import discord
 from dotenv import load_dotenv
 from discord import Client, Intents, Embed
@@ -17,6 +16,7 @@ import ctypes.util
 import asyncio
 from discord_slash import SlashCommand, SlashContext
 from datetime import datetime
+from discord.ext import tasks
 
 print("ctypes - Find opus:")
 a = ctypes.util.find_library('opus')
@@ -46,8 +46,15 @@ FFMPEG_OPTIONS = {
     'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 'options': '-vn'}
 
 
+class VideoLink:
+    def __init__(self, link, thumbnail):
+        self.link = link
+        self.thumbnail = thumbnail
+
+
 @slash.slash(name="play", description="Play a song from YouTube",)
 async def play(ctx=SlashContext, *, query=None):
+    await ctx.send("Playing")
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
     elif not query:
@@ -73,17 +80,16 @@ async def play(ctx=SlashContext, *, query=None):
     video_link = 'https://www.youtube.com/watch?v=' + vid
 
     if(voice.is_playing()):
-        _queue.append(video_link)
+        _queue.append(VideoLink(
+            video_link, search_response['items'][0]['snippet']['thumbnails']['default']['url']))
         print(_queue)
         embed = discord.Embed(
-            title="Added to queue", color=0x00ff00)
+            title="Added to queue", url=video_link, color=0x00ff00)
         embed.set_author(name=ctx.author.name,
                          icon_url=ctx.author.avatar_url)
         embed.set_thumbnail(
             url=search_response['items'][0]['snippet']['thumbnails']['default']['url'])
         await ctx.send(embed=embed)
-        # ctx.send("Added to queue")
-        # await ctx.send(video_link)
         return
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
@@ -108,8 +114,9 @@ async def play(ctx=SlashContext, *, query=None):
 async def play_next(ctx=SlashContext):
     voice = ctx.voice_client
     if(len(_queue) >= 1):
+        video = _queue.pop(0)
         info = YoutubeDL(YDL_OPTIONS).extract_info(
-            _queue.pop(0), download=False)
+            video.link, download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS),
                    after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
@@ -157,11 +164,11 @@ async def next(ctx=SlashContext):
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
         embed = discord.Embed(
-            title=info['title'], url=_queue[0], color=0x00ff00)
+            title=info['title'], url=_queue[0].link, color=0x00ff00)
         embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
         embed.set_thumbnail(url=info['thumbnail'])
         await ctx.send(embed=embed)
-        info = ydl.extract_info(_queue.pop(), download=False)
+        info = ydl.extract_info(_queue.pop().link, download=False)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
         voice.is_playing()
@@ -203,9 +210,16 @@ async def link(ctx=SlashContext, *, query):
     video_link = query
 
     if(voice.is_playing()):
-        _queue.append(video_link)
+        videoId = video_link.split('=')[1].split('&')[0]
+        _queue.append(
+            VideoLink(video_link, "https://img.youtube.com/vi/"+videoId+"/default.jpg"))
         print(_queue)
-        await ctx.send(video_link)
+        embed = discord.Embed(
+            title="Added to Queue", url=video_link, color=0x00ff00)
+        embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
+        embed.set_thumbnail(
+            url="https://img.youtube.com/vi/"+videoId+"/default.jpg")
+        await ctx.send(embed=embed)
         return
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
@@ -221,7 +235,10 @@ async def link(ctx=SlashContext, *, query):
         voice.source = discord.PCMVolumeTransformer(
             voice.source, volume=global_volume)
 
-    await ctx.send(video_link)
+    embed = discord.Embed(title=info['title'], url=video_link, color=0x00ff00)
+    embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
+    embed.set_thumbnail(url=info['thumbnail'])
+    await ctx.send(embed=embed)
 
 
 @slash.slash(name="pause", description="Pause the current song")
@@ -280,7 +297,7 @@ async def queue(ctx=SlashContext):
     embed = discord.Embed(title="Queue", color=0x00ff00)
     embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
     for i in range(len(_queue)):
-        embed.add_field(name=str(i+1)+". ", value=_queue[i], inline=False)
+        embed.add_field(name=str(i+1)+". ", value=_queue[i].link, inline=False)
     await ctx.send(embed=embed)
 
 
@@ -340,59 +357,89 @@ async def remind_me(ctx=SlashContext, *, time: str, message: str):
     await ctx.send(message)
 
 
-@slash.slash(name="course", description="Get the course information")
-async def course(ctx=SlashContext, *, course: str):
-    # https://mydegree.ucdavis.edu/responsiveDashboard/api/course-link?discipline=ECS&number=160
-    embed = discord.Embed(title="Course", color=0x00ff00)
-    embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
-    embed.add_field(
-        name=course, value="Please wait while we fetch the details for "+course, inline=False)
+def getStreams(game):
+    payload = [{
+        "operationName": "DirectoryPage_Game",
+        "variables": {
+            "imageWidth": 50,
+            "name": game,
+            "options": {
+                "sort": "RELEVANCE",
+                "recommendationsContext": {
+                    "platform": "web"
+                },
+                "requestID": "JIRA-VXP-2397",
+                "freeformTags": None,
+                "tags": [
+                    "c2542d6d-cd10-4532-919b-3d19f30a768b"
+                ]
+            },
+            "freeformTagsEnabled": False,
+            "sortTypeIsRecency": False,
+            "limit": 5
+        },
+        "extensions": {
+            "persistedQuery": {
+                "version": 1,
+                "sha256Hash": "749035333f1837aca1c5bae468a11c39604a91c9206895aa90b4657ab6213c24"
+            }
+        }
+    }]
+    res = requests.post(
+        'https://gql.twitch.tv/gql', json=payload, headers={
+            "Client-Id": "kimne78kx3ncx6brgo4mv6wki5h1ko"
+        }
+    ).json()
+
+    return res[0]['data']['game']['streams']['edges']
+
+
+@slash.slash(name="drops", description="Check for streams that have drops enabled for a pame")
+async def drops(ctx=SlashContext, *, game: str):
+    embed = discord.Embed(title=game+" streams", color=0x00ff00)
+    for stream in getStreams(game):
+        if(stream['node']['broadcaster']):
+            embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
+                            stream['node']['broadcaster']['login'], inline=False)
     await ctx.send(embed=embed)
-    try:
-        response = requests.get(
-            'https://mydegree.ucdavis.edu/responsiveDashboard/api/course-link?discipline=' +
-            course.split(' ')[0]+'&number='+course.split(' ')[1]+'&',
-            headers={'Cookie': 'NAME=Parth%20Ninad%20Shah; REFRESH_TOKEN=Bearer+eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI5MTY4MjkxNzEiLCJpbnRlcm5hbElkIjoiOTE2ODI5MTcxIiwidXNlckNsYXNzIjoiU1RVIiwiYXBwTmFtZSI6ImRlZ3JlZXdvcmtzIiwibmFtZSI6IlNoYWgsIFBhcnRoIE5pbmFkIiwiZXhwaXJlSW5jcmVtZW50U2Vjb25kcyI6NTk5OTQwLCJleHAiOjE2NDc5MTk4MDksImFsdElkIjoicGFydGgxMjMiLCJpYXQiOjE2NDczMTk4NjksImp0aSI6ImNlNzA1N2VmLWI3ZmItNDEzMy05YTM0LTM0MDlhZDA2NzkyZSJ9.RtaH12n9SntJg24SdnbvpSeTrUrgs1z0-SBUC0MeUPA; X-AUTH-TOKEN=Bearer+eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI5MTY4MjkxNzEiLCJpbnRlcm5hbElkIjoiOTE2ODI5MTcxIiwidXNlckNsYXNzIjoiU1RVIiwiYXBwTmFtZSI6ImRlZ3JlZXdvcmtzIiwicm9sZXMiOlsiU0RBVURJVCIsIlNEQVVEUkVWIiwiU0RXSEFUSUYiLCJOT1JFRkVSIiwiU0RXSUZISVMiLCJTRFdPUktTIiwiU0RYTUwzMyIsIlNEQVVEUlVOIiwiU0RYTUwzMSIsIlNEQVVEUERGIiwiU0RMT0tBSEQiLCJTRFdFQjMxIiwiU0RXRUIzMyIsIlNEU1RVTUUiLCJTRFdFQjM2Il0sIm5hbWUiOiJTaGFoLCBQYXJ0aCBOaW5hZCIsImRlcGFydG1lbnRzIjpbXSwiZXhwIjoxNjQ3OTIwMDA3LCJhbHRJZCI6InBhcnRoMTIzIiwiaWF0IjoxNjQ3MzIwMDY3LCJqdGkiOiI2NjdmODU1Zi01NjVlLTQ3YWMtYjYwMy0wZGQwMjMyMmI2ZTcifQ.pX4LNCbTrPoJDHWVlKcWuwo23fuHV9oPEH_puToag4E; JSESSIONID=A2F4666A9E4A939FDA4613C9F0C8EF6B; _hjSessionUser_648798=eyJpZCI6ImExMzk0ODA1LTY4MmQtNTdhMy1iMDdhLTgwMjM0NTM1YTJkOCIsImNyZWF0ZWQiOjE2Mzg1NzE4MTk0MzksImV4aXN0aW5nIjp0cnVlfQ==; _hjSessionUser_653936=eyJpZCI6ImUxMDcyNWY3LTdlMDgtNWY0MC1iMjRmLTQxMTE3NzdkOTE3YiIsImNyZWF0ZWQiOjE2Mzg3NzI2OTU2ODUsImV4aXN0aW5nIjp0cnVlfQ==; __utmc=162187235; _hjSessionUser_648769=eyJpZCI6IjkzOWJmYmI5LTkxMjItNTc2Yi1hM2YzLTI0ZTE1YzliZDJkOCIsImNyZWF0ZWQiOjE2Mzk2MjYxMzAwNTksImV4aXN0aW5nIjp0cnVlfQ==; _hjSessionUser_656324=eyJpZCI6ImYyYzgxYzJmLWI2ZjQtNTFiMC1hMzk0LTJhYTM3MWVhMjA0ZiIsImNyZWF0ZWQiOjE2Mzk2Mjg2OTMwNTQsImV4aXN0aW5nIjp0cnVlfQ==; nmstat=aed74523-ab5d-f360-8392-3689cadc204e; citrix_ns_id=AAE7gX3UYTszlOcCAAAAADs9GSgA5c91NSPIO5hox76dPDDtnsvKaZO-SBVZEOITOw==B4HUYQ==XbODb_NCGQLnpHv_RJ5o2oh0K7A=; citrix_ns_id_.ucdavis.edu_%2F_wat=AAAAAAWOa83Xu667afSVnlKdioV6kBJzDq_SaGolWna8d5abXybuc354qBwMBtGXOPgmQjIt4vEs_WL-P1AAR44Q0JTo&AAAAAAUEUi_GkPTPKKW5aWHCz0JMcVLaM0-KqpSt8NK5AnaTux6vH-5f3XNzidGvbxG49UaxKQJ_Vd55R9DmHm_oxkb8RZ2iQc-B_D4VeGFYxrKnKg==&AAAAAAV9ZN2kjRuOWE1I1x2qwPWGgXE1lWVeTMtJP4rJwIF4eLpbB_YTJigwGCU3Z0xp662cUYMTTruU4Zag0lMUV9lf6rtudtCIVRpifwEsWa4v5g==&; SAP_CASAUTH=4D99A2C728D939B6A652E6CB7859C2BD43639A19F6CFCDD5FA2C60ADA08C02A1550FF5D61587732DEE15F2055B04E4513605DA27A66E9B974A4ECAF417DF27EA180B99A3164CF05F1BA3EBCA8FA0BAD92A2D7BA3EDEEDB3043FC6564032A3AF2; __utmz=162187235.1646345630.14.7.utmcsr=cas.ucdavis.edu|utmccn=(referral)|utmcmd=referral|utmcct=/; _fbp=fb.1.1646348587255.953116442; __utma=162187235.1828723012.1638322952.1646345630.1646349181.15; _ga=GA1.2.1828723012.1638322952; _ga_YQ20RZQYKR=GS1.1.1646354327.2.0.1646354327.60; _gid=GA1.2.273393137.1647237034; _hjSession_648798=eyJpZCI6IjliYTc2YTlhLTM1NzUtNGIxNi04N2Q0LTZiNmZlNjRlYzAzZCIsImNyZWF0ZWQiOjE2NDczMTk0MTg1NjIsImluU2FtcGxlIjp0cnVlfQ==; MYUCDAVIS_LANDING_IMAGE=bikesandtrees%2Ejpg%2Cblossoms%2Ejpg%2Cbunitransblur%2Ejpg%2Cccinterior%2Ejpg%2Ccpool%2Ejpg%2Ccwolfskill2%2Ejpg%2Cdeathblossom%2Ejpg%2Cdkayaks%2Ejpg%2Cdorms2%2Ejpg%2Cegret%2Ejpg%2Cflag2%2Ejpg%2CginsengMrak%2Ejpg%2Cgoags%2Ejpg%2Clibrary%2Ejpg%2Corchard%2Ejpg%2Cpallette%2Ejpg%2Cpcircle%2Ejpg%2Cplantsciences%2Ejpg%2Csciencewall%2Ejpg%2Csilo2%2Ejpg%2Cspokes%2Ejpg%2CstudentFarmPoppy%2EJPG%2Cterceroquad%2Ejpg; _gcl_au=1.1.1866842315.1647319836; _hjSession_653936=eyJpZCI6IjA4ZWMyNGQxLWZlYjItNDMxYS1hNTU0LWE1N2ZiYjg4Yjg0MCIsImNyZWF0ZWQiOjE2NDczMTk4MzYyNDksImluU2FtcGxlIjp0cnVlfQ=='})
-        data = response.json()
-        desc = data['courseInformation']['courses'][0]['description']
-        sections = data['courseInformation']['courses'][0]['sections'][0]
-        times = []
-        days = ['monday', 'tuesday', 'wednesday',
-                'thursday', 'friday', 'saturday', 'sunday']
-        for meetings in sections['meetings']:
-            beginTime= datetime.strptime(meetings['beginTime'], "%H%M")
-            endTime= datetime.strptime(meetings['endTime'], "%H%M")
-            for day in days:
-                if meetings[day] != '':
-                    times.append(
-                        ("Lecture" if meetings['category']=="01" else "Discussion",day, beginTime.strftime("%I:%M %p"),endTime.strftime("%I:%M %p")))
-        embed = discord.Embed(title="Course", color=0x00ff00)
-        embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
-        embed.add_field(name="Course", value=course, inline=False)
-        embed.add_field(name="Description", value=desc, inline=False)
-        embed.add_field(name="Times", value=times, inline=False)
-        print(desc)
-        await ctx.send(embed=embed)
-    except:
-        await ctx.send("Course not found")
+
+Started = False
+
+
+@tasks.loop(minutes=5)
+async def reminder():
+    global Started
+    print("Reminder")
+    streams = getStreams("rocket league")
+    if(len(streams) > 0):
+        if(not Started):
+            Started = True
+            channel = bot.get_channel(1006713461474066513)
+            await channel.send("Rocket League is live!")
+            embed = discord.Embed(title="rust streams", color=0x00ff00)
+            for stream in streams:
+                if(stream['node']['broadcaster']):
+                    embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
+                                    stream['node']['broadcaster']['login'], inline=False)
+            await channel.send(embed=embed)
+    else:
+        Started = False
 
 
 @bot.event
 async def on_message(message):
     mention = str(bot.user.id)
     if mention in message.content:
-        if(str(message.author) == "GatoSecksual#6689"):
-            await message.channel.send("🥫")
-        else:
-            embed = discord.Embed(
-                title="Thank you for using my bot",
-                description="I am a bot created by <@!279174239972491276>",)
-            await message.channel.send(embed=embed)
+        embed = discord.Embed(
+            title="Thank you for using my bot",
+            description="I am a bot created by <@!279174239972491276>",)
+        await message.channel.send(embed=embed)
 
 
 @bot.event
 async def on_ready():
     print('client ready')
+    reminder.start()
 
 print("Running bot")
 
