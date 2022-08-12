@@ -413,7 +413,7 @@ async def reminder():
     global Started
     print("Reminder")
     streams = getStreams("rocket league")
-    if(len(streams) > 0):
+    if(len(streams) > 1):
         if(not Started):
             Started = True
             channel = bot.get_channel(1006713461474066513)
