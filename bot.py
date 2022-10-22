@@ -411,7 +411,7 @@ isOn = False
 
 @tasks.loop(minutes=5)
 async def reminder():
-    global Started
+    global Started, isOn
     print("Reminder")
     streams = getStreams("rocket league")
     if(len(streams) > 1 and not Started):
