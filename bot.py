@@ -406,6 +406,7 @@ async def drops(ctx=SlashContext, *, game: str):
     await ctx.send(embed=embed)
 
 Started = False
+isOn = False
 
 
 @tasks.loop(minutes=5)
@@ -413,20 +414,24 @@ async def reminder():
     global Started
     print("Reminder")
     streams = getStreams("rocket league")
-    if(len(streams) > 1):
-        if(not Started):
+    if(len(streams) > 1 and not Started):
+        if isOn:
             Started = True
             channel = bot.get_channel(1006713461474066513)
             allowed_mentions = discord.AllowedMentions(everyone=True)
             await channel.send(content="@everyone", allowed_mentions=allowed_mentions)
-            embed = discord.Embed(title="Rocket League drops are live!", color=0x00ff00)
+            embed = discord.Embed(
+                title="Rocket League drops are live!", color=0x00ff00)
             for stream in streams:
                 if(stream['node']['broadcaster']):
                     embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
                                     stream['node']['broadcaster']['login'], inline=False)
             await channel.send(embed=embed)
+        else:
+            isOn = True
     else:
         Started = False
+        isOn = False
 
 
 @bot.event
