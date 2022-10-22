@@ -429,7 +429,7 @@ async def reminder():
             await channel.send(embed=embed)
         else:
             isOn = True
-    else:
+    elif(len(streams) == 0):
         Started = False
         isOn = False
 
