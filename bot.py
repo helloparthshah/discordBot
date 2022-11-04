@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 from io import BytesIO
+from math import floor
+import random
 from urllib import response
 from PIL import Image
 from unicodedata import name
@@ -403,6 +405,51 @@ async def drops(ctx=SlashContext, *, game: str):
         if(stream['node']['broadcaster']):
             embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
                             stream['node']['broadcaster']['login'], inline=False)
+    await ctx.send(embed=embed)
+
+games = {'Fortnite': 1,
+         'Rocket League': 1,
+         'Overwatch 2': 1,
+         'Valorant': 1}
+
+
+@slash.slash(name="choose", description="Choose a game")
+async def choose(ctx=SlashContext):
+    choice = random.choices(
+        list(games.keys()), weights=list(games.values()), k=1)[0]
+    await ctx.send(embed=discord.Embed(title="I choose "+choice, color=0x00ff00))
+
+
+@slash.slash(name="games", description="Show list of games")
+async def listgames(ctx=SlashContext):
+    global games
+    total = sum(games.values())
+    embed = discord.Embed(title="Games", color=0x00ff00)
+    for game in games:
+        embed.add_field(name=game, value=games[game], inline=False)
+    await ctx.send(embed=embed)
+
+
+@slash.slash(name="addgame", description="Add new game")
+async def addgame(ctx=SlashContext, *, game: str, weight: int):
+    games[game] = weight
+    total = sum(games.values())
+    embed = discord.Embed(title="Games", color=0x00ff00)
+    for game in games:
+        embed.add_field(name=game, value=games[game], inline=False)
+    await ctx.send(embed=embed)
+
+
+@slash.slash(name="changeweight", description="Change weight for game")
+async def addgame(ctx=SlashContext, *, game: str, weight: int):
+    for g in games:
+        if(g.lower().replace(" ", "") == game.lower().replace(" ", "")):
+            games[g] = weight
+            break
+    total = sum(games.values())
+    embed = discord.Embed(title="Games", color=0x00ff00)
+    for game in games:
+        embed.add_field(name=game, value=games[game], inline=False)
     await ctx.send(embed=embed)
 
 Started = False
