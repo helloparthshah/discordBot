@@ -418,14 +418,28 @@ def getStreams(game):
     return res[0]['data']['game']['streams']['edges']
 
 
-@slash.slash(name="drops", description="Check for streams that have drops enabled for a pame")
+@slash.slash(name="drops", description="Check for streams that have drops enabled for a game")
 async def drops(ctx=SlashContext, *, game: str):
     embed = discord.Embed(title=game+" streams", color=0x00ff00)
     for stream in getStreams(game):
         if(stream['node']['broadcaster']):
             embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
                             stream['node']['broadcaster']['login'], inline=False)
-    await ctx.send(embed=embed)
+    await ctx.send(embed=embed, components=[
+        create_actionrow(
+            create_button(
+                style=ButtonStyle.URL,
+                label="Open in browser",
+                url="https://www.twitch.tv/directory/game/" +
+                    game.replace(" ", "%20") +
+                "?tl=DropsEnabled"
+            ),
+            create_button(
+                style=ButtonStyle.blue,
+                label="Refresh",
+            )
+        )
+    ])
 
 games = {'Fortnite': 1,
          'Rocket League': 1,
@@ -523,6 +537,28 @@ async def on_component(ctx: ComponentContext):
         global_volume = 1
         await ctx.voice_client.disconnect()
         await ctx.send("Disconnected")
+    elif ctx.component['label'] == "Refresh":
+        game = ctx.origin_message.embeds[0].title.replace(" streams", "")
+        embed = discord.Embed(title=game+" streams", color=0x00ff00)
+        for stream in getStreams(game):
+            if(stream['node']['broadcaster']):
+                embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
+                                stream['node']['broadcaster']['login'], inline=False)
+        await ctx.edit_origin(embed=embed, components=[
+            create_actionrow(
+                create_button(
+                    style=ButtonStyle.URL,
+                    label="Open in browser",
+                    url="https://www.twitch.tv/directory/game/" +
+                        game.replace(" ", "%20") +
+                    "?tl=DropsEnabled"
+                ),
+                create_button(
+                    style=ButtonStyle.blue,
+                    label="Refresh",
+                )
+            )
+        ])
 
 
 @ slash.slash(name="games", description="Show list of games")
@@ -557,6 +593,17 @@ async def addgame(ctx=SlashContext, *, game: str, weight: int):
         embed.add_field(name=game, value=games[game], inline=False)
     await ctx.send(embed=embed)
 
+
+@ slash.slash(name="help", description="View all of the commands")
+async def help(ctx=SlashContext):
+    # dynamically create the embed
+    embed = discord.Embed(title="Help", color=0x00ff00)
+    for command in slash.commands:
+        if(slash.commands[command]):
+            embed.add_field(name="/"+command,
+                            value=slash.commands[command].description, inline=False)
+    await ctx.send(embed=embed)
+
 Started = False
 isOn = False
 
@@ -578,7 +625,19 @@ async def reminder():
                 if(stream['node']['broadcaster']):
                     embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
                                     stream['node']['broadcaster']['login'], inline=False)
-            await channel.send(embed=embed)
+            await channel.send(embed=embed, components=[
+                create_actionrow(
+                    create_button(
+                        style=ButtonStyle.URL,
+                        label="Open in browser",
+                        url="https://www.twitch.tv/directory/game/rocket%20league?tl=DropsEnabled"
+                    ),
+                    create_button(
+                        style=ButtonStyle.blue,
+                        label="Refresh",
+                    )
+                )
+            ])
         else:
             isOn = True
     elif(len(streams) == 0):
