@@ -63,6 +63,10 @@ play_actions = create_actionrow(create_button(
     style=ButtonStyle.blue, label="Next"),
     create_button(
     style=ButtonStyle.red, label="Stop"),
+    create_button(
+    style=ButtonStyle.grey, label="Volume Up"),
+    create_button(
+    style=ButtonStyle.grey, label="Volume Down"),
 )
 
 pause_actions = create_actionrow(create_button(
@@ -71,6 +75,10 @@ pause_actions = create_actionrow(create_button(
     style=ButtonStyle.blue, label="Next"),
     create_button(
     style=ButtonStyle.red, label="Stop"),
+    create_button(
+    style=ButtonStyle.grey, label="Volume Up"),
+    create_button(
+    style=ButtonStyle.grey, label="Volume Down"),
 )
 
 
