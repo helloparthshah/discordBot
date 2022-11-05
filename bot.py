@@ -476,7 +476,11 @@ async def on_component(ctx: ComponentContext):
             list(games.keys()), weights=list(games.values()), k=1)[0]
         await ctx.send(embed=discord.Embed(title="I choose "+choice, color=0x00ff00), components=[action_row])
     elif ctx.component['label'] == "Remove choice and choose again":
-        pass
+        del games[ctx.origin_message.embeds[0].title.replace("I choose ", "")]
+        await ctx.origin_message.delete()
+        choice = random.choices(
+            list(games.keys()), weights=list(games.values()), k=1)[0]
+        await ctx.send(embed=discord.Embed(title="I choose "+choice, color=0x00ff00), components=[action_row])
     elif ctx.component['label'] == "Pause":
         # get the voice client from the guild
         voice = ctx.voice_client
@@ -579,7 +583,8 @@ async def addgame(ctx=SlashContext, *, game: str, weight: int):
     for game in games:
         embed.add_field(name=game, value=games[game], inline=False)
     await ctx.send(embed=embed)
-    
+
+
 @ slash.slash(name="removegame", description="Remove existing game")
 async def removegame(ctx=SlashContext, *, game: str):
     for g in games:
@@ -591,7 +596,7 @@ async def removegame(ctx=SlashContext, *, game: str):
     for game in games:
         embed.add_field(name=game, value=games[game], inline=False)
     await ctx.send(embed=embed)
-    
+
 
 @ slash.slash(name="changeweight", description="Change weight for game")
 async def addgame(ctx=SlashContext, *, game: str, weight: int):
