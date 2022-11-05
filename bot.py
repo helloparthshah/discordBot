@@ -579,7 +579,19 @@ async def addgame(ctx=SlashContext, *, game: str, weight: int):
     for game in games:
         embed.add_field(name=game, value=games[game], inline=False)
     await ctx.send(embed=embed)
-
+    
+@ slash.slash(name="removegame", description="Remove existing game")
+async def addgame(ctx=SlashContext, *, game: str):
+    for g in games:
+        if(g.lower().replace(" ", "") == game.lower().replace(" ", "")):
+            del games[g]
+            break
+    total = sum(games.values())
+    embed = discord.Embed(title="Games", color=0x00ff00)
+    for game in games:
+        embed.add_field(name=game, value=games[game], inline=False)
+    await ctx.send(embed=embed)
+    
 
 @ slash.slash(name="changeweight", description="Change weight for game")
 async def addgame(ctx=SlashContext, *, game: str, weight: int):
