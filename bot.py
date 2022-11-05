@@ -613,7 +613,7 @@ async def reminder():
     global Started, isOn
     print("Reminder", Started, isOn)
     streams = getStreams("rocket league")
-    if(len(streams) > 1 and not Started):
+    if(len(streams) > 0 and not Started):
         if isOn:
             Started = True
             channel = bot.get_channel(1006713461474066513)
