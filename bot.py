@@ -581,7 +581,7 @@ async def addgame(ctx=SlashContext, *, game: str, weight: int):
     await ctx.send(embed=embed)
     
 @ slash.slash(name="removegame", description="Remove existing game")
-async def addgame(ctx=SlashContext, *, game: str):
+async def removegame(ctx=SlashContext, *, game: str):
     for g in games:
         if(g.lower().replace(" ", "") == game.lower().replace(" ", "")):
             del games[g]
