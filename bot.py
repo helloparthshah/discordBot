@@ -1,10 +1,7 @@
 #!/usr/bin/python3
 from io import BytesIO
-from math import floor
 import random
-from urllib import response
 from PIL import Image
-from unicodedata import name
 import requests
 from googleapiclient.discovery import build
 import os
@@ -20,7 +17,7 @@ from discord_slash import SlashCommand, SlashContext
 from datetime import datetime
 from discord.ext import tasks
 from discord_slash.context import ComponentContext
-from discord_slash.utils.manage_components import create_button, create_actionrow, wait_for_component
+from discord_slash.utils.manage_components import create_button, create_actionrow, create_select, create_select_option
 from discord_slash.model import ButtonStyle
 
 print("ctypes - Find opus:")
@@ -57,33 +54,62 @@ class VideoLink:
         self.thumbnail = thumbnail
 
 
-play_actions = create_actionrow(create_button(
-    style=ButtonStyle.red, label="Pause"),
-    create_button(
-    style=ButtonStyle.blue, label="Next"),
-    create_button(
-    style=ButtonStyle.red, label="Stop"),
-    create_button(
-    style=ButtonStyle.grey, label="Volume Up"),
-    create_button(
-    style=ButtonStyle.grey, label="Volume Down"),
-)
+play_actions = [
+    create_actionrow(
+        create_button(
+            style=ButtonStyle.red, label="Pause"),
+        create_button(
+            style=ButtonStyle.blue, label="Next"),
+        create_button(
+            style=ButtonStyle.red, label="Stop"),
+        create_button(
+            style=ButtonStyle.green, label="Seek +10s"),
+    ), create_actionrow(
+        create_select(
+            options=[
+                create_select_option("10", value="10%"),
+                create_select_option("20", value="20%"),
+                create_select_option("30", value="30%"),
+                create_select_option("40", value="40%"),
+                create_select_option("50", value="50%"),
+                create_select_option("60", value="60%"),
+                create_select_option("70", value="70%"),
+                create_select_option("80", value="80%"),
+                create_select_option("90", value="90%"),
+                create_select_option("100", value="100%"),
+            ],
+        ),)]
 
-pause_actions = create_actionrow(create_button(
-    style=ButtonStyle.green, label="Resume"),
+pause_actions = [create_actionrow(
     create_button(
-    style=ButtonStyle.blue, label="Next"),
+        style=ButtonStyle.green, label="Resume"),
     create_button(
-    style=ButtonStyle.red, label="Stop"),
+        style=ButtonStyle.blue, label="Next"),
     create_button(
-    style=ButtonStyle.grey, label="Volume Up"),
+        style=ButtonStyle.red, label="Stop"),
     create_button(
-    style=ButtonStyle.grey, label="Volume Down"),
-)
+        style=ButtonStyle.green, label="Seek +10s"),
+), create_actionrow(
+    create_select(
+        options=[
+            create_select_option("10", value="10%"),
+            create_select_option("20", value="20%"),
+            create_select_option("30", value="30%"),
+            create_select_option("40", value="40%"),
+            create_select_option("50", value="50%"),
+            create_select_option("60", value="60%"),
+            create_select_option("70", value="70%"),
+            create_select_option("80", value="80%"),
+            create_select_option("90", value="90%"),
+            create_select_option("100", value="100%"),
+        ],
+    ),
+)]
 
 
 @slash.slash(name="play", description="Play a song from YouTube",)
 async def play(ctx=SlashContext, *, query=None):
+    global global_volume
     await ctx.send("Playing")
     if not query and ctx.voice_client.is_paused():
         return ctx.voice_client.resume()
@@ -119,7 +145,10 @@ async def play(ctx=SlashContext, *, query=None):
                          icon_url=ctx.author.avatar_url)
         embed.set_thumbnail(
             url=search_response['items'][0]['snippet']['thumbnails']['default']['url'])
-        await ctx.send(embed=embed, components=[pause_actions if voice.is_paused() else play_actions])
+        embed.add_field(name="Queue length :", value=len(_queue), inline=True)
+        embed.set_footer(text="Volume : " + str(
+            global_volume*100)+"%")
+        await ctx.send(embed=embed, components=pause_actions if voice.is_paused() else play_actions)
         return
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
@@ -129,16 +158,19 @@ async def play(ctx=SlashContext, *, query=None):
                    after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
         voice.is_playing()
 
-        global global_volume
         print(global_volume)
         # voice.source.volume = 1
         voice.source = discord.PCMVolumeTransformer(
             voice.source, volume=global_volume)
     # Send emebed video link and title as song name
-    embed = discord.Embed(title=info['title'], url=video_link, color=0x00ff00)
+    embed = discord.Embed(
+        title=info['title'], url=info['formats'][0]['url'], color=0x00ff00)
     embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
     embed.set_thumbnail(url=info['thumbnail'])
-    await ctx.send(embed=embed, components=[play_actions])
+    embed.add_field(name="Queue length :", value=len(_queue), inline=True)
+    embed.set_footer(text="Volume : " + str(
+        global_volume*100)+"%")
+    await ctx.send(embed=embed, components=play_actions)
 
 
 async def play_next(ctx=SlashContext):
@@ -159,7 +191,10 @@ async def play_next(ctx=SlashContext):
             title=info['title'], url=info['webpage_url'], color=0x00ff00)
         embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
         embed.set_thumbnail(url=info['thumbnail'])
-        await ctx.send(embed=embed, components=[play_actions])
+        embed.add_field(name="Queue length :", value=len(_queue), inline=True)
+        embed.set_footer(text="Volume : " + str(
+            global_volume*100)+"%")
+        await ctx.send(embed=embed, components=play_actions)
     else:
         # await asyncio.sleep(90)  # wait 1 minute and 30 seconds
         if not voice.is_playing():
@@ -200,12 +235,14 @@ async def next(ctx=SlashContext):
             title=info['title'], url=_queue[0].link, color=0x00ff00)
         embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
         embed.set_thumbnail(url=info['thumbnail'])
-        await ctx.send(embed=embed, components=[play_actions])
+        embed.add_field(name="Queue length :", value=len(_queue), inline=True)
+        embed.set_footer(text="Volume : " + str(
+            global_volume*100)+"%")
+        await ctx.send(embed=embed, components=play_actions)
         URL = info['formats'][0]['url']
         voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
         voice.is_playing()
 
-        global global_volume
         print(global_volume)
         voice.source.volume = 1
         voice.source = discord.PCMVolumeTransformer(
@@ -251,7 +288,9 @@ async def link(ctx=SlashContext, *, query):
         embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
         embed.set_thumbnail(
             url="https://img.youtube.com/vi/"+videoId+"/default.jpg")
-        await ctx.send(embed=embed, components=[pause_actions if voice.is_paused() else play_actions])
+        embed.add_field(name="Volume", value=str(
+            global_volume*100)+"%", inline=True)
+        await ctx.send(embed=embed, components=pause_actions if voice.is_paused() else play_actions)
         return
 
     with YoutubeDL(YDL_OPTIONS) as ydl:
@@ -261,7 +300,6 @@ async def link(ctx=SlashContext, *, query):
                    after=lambda e: asyncio.run_coroutine_threadsafe(play_next(ctx), bot.loop))
         voice.is_playing()
 
-        global global_volume
         print(global_volume)
         # voice.source.volume = 1
         voice.source = discord.PCMVolumeTransformer(
@@ -270,7 +308,7 @@ async def link(ctx=SlashContext, *, query):
     embed = discord.Embed(title=info['title'], url=video_link, color=0x00ff00)
     embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
     embed.set_thumbnail(url=info['thumbnail'])
-    await ctx.send(embed=embed, components=[play_actions])
+    await ctx.send(embed=embed, components=play_actions)
 
 
 @slash.slash(name="pause", description="Pause the current song")
@@ -477,100 +515,174 @@ async def choose(ctx=SlashContext):
 
 @bot.event
 async def on_component(ctx: ComponentContext):
+    global global_volume
     # await ctx.edit_origin(embed=discord.Embed(title=ctx.origin_message.embeds[0].title, color=0x00ff00), components=[])
-    if ctx.component['label'] == "Choose again":
-        await ctx.origin_message.delete()
-        choice = random.choices(
-            list(games.keys()), weights=list(games.values()), k=1)[0]
-        await ctx.send(embed=discord.Embed(title="I choose "+choice, color=0x00ff00), components=[action_row])
-    elif ctx.component['label'] == "Remove choice and choose again":
-        del games[ctx.origin_message.embeds[0].title.replace("I choose ", "")]
-        await ctx.origin_message.delete()
-        choice = random.choices(
-            list(games.keys()), weights=list(games.values()), k=1)[0]
-        await ctx.send(embed=discord.Embed(title="I choose "+choice, color=0x00ff00), components=[action_row])
-    elif ctx.component['label'] == "Pause":
-        # get the voice client from the guild
+    # check if button or select
+    if ctx.component_type == 3:
+        if not ctx.voice_client:
+            return await ctx.send(embed=discord.Embed(
+                title="Join a channel first", color=0x00ff00))
         voice = ctx.voice_client
-        if(voice):
-            if voice.is_playing():
-                voice.pause()
-                await ctx.edit_origin(embed=ctx.origin_message.embeds[0], components=[pause_actions])
-            else:
-                await ctx.send(embed=discord.Embed(
-                    title="Not playing", color=0x00ff00))
-    elif ctx.component['label'] == "Resume":
-        voice = ctx.voice_client
-        if(voice):
-            if voice.is_paused():
-                voice.resume()
-                await ctx.edit_origin(embed=ctx.origin_message.embeds[0], components=[play_actions])
-    elif ctx.component['label'] == "Next":
-        if(not ctx.author.voice):
-            embed = discord.Embed(title="Join a channel first", color=0x00ff00)
-            return await ctx.send(embed=embed)
-
-        if(len(_queue) == 0):
-            embed = discord.Embed(
-                title="No more songs in queue", color=0x00ff00)
-            return await ctx.send(embed=embed)
-
-        # voice = get(bot.voice_clients, guild=ctx.guild)
-        channel = ctx.author.voice.channel
-
-        if(not ctx.voice_client):
-            voice = await channel.connect()
-        else:
+        global_volume = int(ctx.selected_options[0].replace("%", ""))/100
+        global_volume = round(global_volume, 1)
+        is_paused = voice.is_paused()
+        voice.source.volume = 1
+        voice.source = discord.PCMVolumeTransformer(
+            voice.source, volume=global_volume)
+        # pause if it was paused
+        if(is_paused):
+            voice.pause()
+        print(global_volume)
+        embed = ctx.origin_message.embeds[0].set_footer(
+            text="Volume: "+str(global_volume*100)+"%")
+        await ctx.edit_origin(embed=embed, components=pause_actions if voice.is_paused() else play_actions)
+    elif ctx.component_type == 2:
+        if ctx.component['label'] == "Choose again":
+            await ctx.origin_message.delete()
+            choice = random.choices(
+                list(games.keys()), weights=list(games.values()), k=1)[0]
+            await ctx.send(embed=discord.Embed(title="I choose "+choice, color=0x00ff00), components=[action_row])
+        elif ctx.component['label'] == "Remove choice and choose again":
+            del games[ctx.origin_message.embeds[0].title.replace(
+                "I choose ", "")]
+            await ctx.origin_message.delete()
+            choice = random.choices(
+                list(games.keys()), weights=list(games.values()), k=1)[0]
+            await ctx.send(embed=discord.Embed(title="I choose "+choice, color=0x00ff00), components=[action_row])
+        elif ctx.component['label'] == "Pause":
+            # get the voice client from the guild
             voice = ctx.voice_client
-            voice.stop()
+            if(voice):
+                if voice.is_playing():
+                    voice.pause()
+                    await ctx.edit_origin(embed=ctx.origin_message.embeds[0], components=pause_actions)
+                else:
+                    await ctx.send(embed=discord.Embed(
+                        title="Not playing", color=0x00ff00))
+        elif ctx.component['label'] == "Resume":
+            voice = ctx.voice_client
+            if(voice):
+                if voice.is_paused():
+                    voice.resume()
+                    await ctx.edit_origin(embed=ctx.origin_message.embeds[0], components=play_actions)
+        elif ctx.component['label'] == "Next":
+            if(not ctx.author.voice):
+                embed = discord.Embed(
+                    title="Join a channel first", color=0x00ff00)
+                return await ctx.send(embed=embed)
 
-        await ctx.send("Playing next song")
+            if(len(_queue) == 0):
+                embed = discord.Embed(
+                    title="No more songs in queue", color=0x00ff00)
+                return await ctx.send(embed=embed)
 
-        with YoutubeDL(YDL_OPTIONS) as ydl:
-            info = ydl.extract_info(_queue.pop().link, download=False)
-            embed = discord.Embed(
-                title=info['title'], url=_queue[0].link, color=0x00ff00)
-            embed.set_author(name=ctx.author.name,
-                             icon_url=ctx.author.avatar_url)
-            embed.set_thumbnail(url=info['thumbnail'])
-            await ctx.send(embed=embed, components=[play_actions])
-            URL = info['formats'][0]['url']
-            voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
-            voice.is_playing()
+            # voice = get(bot.voice_clients, guild=ctx.guild)
+            channel = ctx.author.voice.channel
 
-            global global_volume
-            print(global_volume)
+            if(not ctx.voice_client):
+                voice = await channel.connect()
+            else:
+                voice = ctx.voice_client
+                voice.stop()
+
+            await ctx.send("Playing next song")
+
+            with YoutubeDL(YDL_OPTIONS) as ydl:
+                info = ydl.extract_info(_queue.pop().link, download=False)
+                embed = discord.Embed(
+                    title=info['title'], url=_queue[0].link, color=0x00ff00)
+                embed.set_author(name=ctx.author.name,
+                                 icon_url=ctx.author.avatar_url)
+                embed.set_thumbnail(url=info['thumbnail'])
+                embed.add_field(name="Queue length :",
+                                value=len(_queue), inline=True)
+                embed.set_footer(text="Volume : " + str(
+                    global_volume*100)+"%")
+                await ctx.send(embed=embed, components=play_actions)
+                URL = info['formats'][0]['url']
+                voice.play(FFmpegPCMAudio(URL, **FFMPEG_OPTIONS))
+                voice.is_playing()
+
+                print(global_volume)
+                voice.source.volume = 1
+                voice.source = discord.PCMVolumeTransformer(
+                    voice.source, volume=global_volume)
+
+            print(_queue)
+        elif ctx.component['label'] == "Stop":
+            global_volume = 1
+            await ctx.voice_client.disconnect()
+            await ctx.send("Disconnected")
+        elif ctx.component['label'] == "Refresh":
+            game = ctx.origin_message.embeds[0].title.replace(" streams", "")
+            embed = discord.Embed(title=game+" streams", color=0x00ff00)
+            for stream in getStreams(game):
+                if(stream['node']['broadcaster']):
+                    embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
+                                    stream['node']['broadcaster']['login'], inline=False)
+            await ctx.edit_origin(embed=embed, components=[
+                create_actionrow(
+                    create_button(
+                        style=ButtonStyle.URL,
+                        label="Open in browser",
+                        url="https://www.twitch.tv/directory/game/" +
+                            game.replace(" ", "%20") +
+                        "?tl=DropsEnabled"
+                    ),
+                    create_button(
+                        style=ButtonStyle.blue,
+                        label="Refresh",
+                    )
+                )
+            ])
+        elif ctx.component['label'] == "Volume Up":
+            if not ctx.voice_client:
+                return await ctx.send(embed=discord.Embed(
+                    title="Join a channel first", color=0x00ff00))
+            voice = ctx.voice_client
+            global_volume = global_volume+0.1
+            global_volume = round(global_volume, 1)
+            is_paused = voice.is_paused()
             voice.source.volume = 1
             voice.source = discord.PCMVolumeTransformer(
                 voice.source, volume=global_volume)
+            # pause if it was paused
+            if(is_paused):
+                voice.pause()
+            print(global_volume)
+            embed = ctx.origin_message.embeds[0].set_footer(
+                text="Volume: "+str(global_volume*100)+"%")
+            await ctx.edit_origin(embed=embed, components=pause_actions if voice.is_paused() else play_actions)
 
-        print(_queue)
-    elif ctx.component['label'] == "Stop":
-        global_volume = 1
-        await ctx.voice_client.disconnect()
-        await ctx.send("Disconnected")
-    elif ctx.component['label'] == "Refresh":
-        game = ctx.origin_message.embeds[0].title.replace(" streams", "")
-        embed = discord.Embed(title=game+" streams", color=0x00ff00)
-        for stream in getStreams(game):
-            if(stream['node']['broadcaster']):
-                embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
-                                stream['node']['broadcaster']['login'], inline=False)
-        await ctx.edit_origin(embed=embed, components=[
-            create_actionrow(
-                create_button(
-                    style=ButtonStyle.URL,
-                    label="Open in browser",
-                    url="https://www.twitch.tv/directory/game/" +
-                        game.replace(" ", "%20") +
-                    "?tl=DropsEnabled"
-                ),
-                create_button(
-                    style=ButtonStyle.blue,
-                    label="Refresh",
-                )
-            )
-        ])
+        elif ctx.component['label'] == "Volume Down":
+            if not ctx.voice_client:
+                return await ctx.send(embed=discord.Embed(
+                    title="Join a channel first", color=0x00ff00))
+            voice = ctx.voice_client
+            global_volume = global_volume-0.1
+            # round to 1 decimal
+            global_volume = round(global_volume, 1)
+            if(global_volume < 0):
+                global_volume = 0
+            is_paused = voice.is_paused()
+            voice.source.volume = 1
+            voice.source = discord.PCMVolumeTransformer(
+                voice.source, volume=global_volume)
+            # pause if it was paused
+            if(is_paused):
+                voice.pause()
+            print(global_volume)
+            embed = ctx.origin_message.embeds[0].set_footer(
+                text="Volume: "+str(global_volume*100)+"%")
+            await ctx.edit_origin(embed=embed, components=pause_actions if voice.is_paused() else play_actions)
+        elif ctx.component['label'] == "Seek +10s":
+            if not ctx.voice_client:
+                return await ctx.send(embed=discord.Embed(
+                    title="Join a channel first", color=0x00ff00))
+            voice = ctx.voice_client
+            for i in range(0, 500):
+                voice.source.read()
+            await ctx.edit_origin(embed=ctx.origin_message.embeds[0], components=pause_actions if voice.is_paused() else play_actions)
 
 
 @ slash.slash(name="games", description="Show list of games")
