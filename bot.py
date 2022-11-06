@@ -166,7 +166,7 @@ async def play(ctx=SlashContext, *, query=None):
             voice.source, volume=global_volume)
     # Send emebed video link and title as song name
     embed = discord.Embed(
-        title=info['title'], url=info['formats'][0]['url'], color=0x00ff00)
+        title=info['title'], url=video_link, color=0x00ff00)
     embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
     embed.set_thumbnail(url=info['thumbnail'])
     embed.add_field(name="Queue length :", value=len(_queue), inline=True)
