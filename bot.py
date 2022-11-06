@@ -78,6 +78,7 @@ play_actions = [
                 create_select_option("90", value="90%"),
                 create_select_option("100", value="100%"),
             ],
+            placeholder="Change volume",
         ),)]
 
 pause_actions = [create_actionrow(
@@ -103,6 +104,7 @@ pause_actions = [create_actionrow(
             create_select_option("90", value="90%"),
             create_select_option("100", value="100%"),
         ],
+        placeholder="Change volume",
     ),
 )]
 
