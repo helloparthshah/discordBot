@@ -384,6 +384,12 @@ async def yo_mama(ctx=SlashContext, *, user: discord.Member):
         title=data['joke'], color=0x00ff00))
 
 
+@slash.slash(name="rickroll", description="Never gonna give you up")
+async def rickroll(ctx=SlashContext, *, link: str, user: discord.Member):
+    await ctx.send(user.mention)
+    await ctx.send("https://www.latlmes.com/breaking/"+link.replace(" ", "-"))
+
+
 @slash.slash(name="remove_bg", description="Remove the background")
 async def remove_bg(ctx=SlashContext, *, user: discord.Member):
     # User remove.bg to remove the background
