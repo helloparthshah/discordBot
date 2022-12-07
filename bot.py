@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+from revChatGPT.revChatGPT import Chatbot
 from io import BytesIO
 import random
 from PIL import Image
@@ -737,6 +738,25 @@ async def addgame(ctx=SlashContext, *, game: str, weight: int):
     for game in games:
         embed.add_field(name=game, value=games[game], inline=False)
     await ctx.send(embed=embed)
+
+config = {
+    "session_token": os.getenv('session_token')
+}
+chatbot = Chatbot(config, conversation_id=None)
+
+
+@ slash.slash(name="chat", description="Talk with the bot")
+async def chat(ctx=SlashContext, *, message: str):
+    await ctx.send("Hmmm...")
+    response = chatbot.get_chat_response(
+        message)['message']
+    print(response)
+    # if more that 2000 characters, split into multiple messages
+    if(len(response) > 2000):
+        for i in range(0, len(response), 2000):
+            await ctx.send(response[i:i+2000])
+    else:
+        await ctx.send(response)
 
 
 @ slash.slash(name="help", description="View all of the commands")
