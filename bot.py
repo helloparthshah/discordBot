@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-from revChatGPT.revChatGPT import Chatbot
 from io import BytesIO
 import random
 from PIL import Image
@@ -739,13 +738,13 @@ async def addgame(ctx=SlashContext, *, game: str, weight: int):
         embed.add_field(name=game, value=games[game], inline=False)
     await ctx.send(embed=embed)
 
-config = {
+""" config = {
     "session_token": os.getenv('session_token')
 }
-chatbot = Chatbot(config, conversation_id=None)
+chatbot = Chatbot(config, conversation_id=None) """
 
 
-@ slash.slash(name="chat", description="Talk with the bot")
+""" @ slash.slash(name="chat", description="Talk with the bot")
 async def chat(ctx=SlashContext, *, message: str):
     await ctx.send("Hmmm...")
     response = chatbot.get_chat_response(
@@ -756,7 +755,7 @@ async def chat(ctx=SlashContext, *, message: str):
         for i in range(0, len(response), 2000):
             await ctx.send(response[i:i+2000])
     else:
-        await ctx.send(response)
+        await ctx.send(response) """
 
 
 @ slash.slash(name="help", description="View all of the commands")

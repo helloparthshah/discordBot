@@ -8,4 +8,3 @@ ffmpeg
 discord-py-interactions
 discord-py-slash-command==3.0.3
 pillow
-revChatGPT
