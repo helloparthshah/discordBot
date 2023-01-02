@@ -760,9 +760,10 @@ async def rlrank(ctx=SlashContext, *, epicid: str):
             "Sec-Fetch-Site": "none",
             "Sec-Fetch-User": "?1",
             "Upgrade-Insecure-Requests": "1",
-            "Cookie": "__cflb=02DiuFQAkRrzD1P1mdm8JatZXtAyjoPD1gzrX6pBvYR9n; X-Mapping-Server=s18; __cf_bm=eWQ1qFwaetme.xpgRNa2N1XMuI5PFamDcvOFTqEOSFk-1672665864-0-AZJgbXPABux8mgyhLXnbhDBGt5NLBL0/4z/83lS7qb0XlYX88uXd7ecBMdafsYz+qeucjH4OpRRRQLmnfHl29cpl5jtPfX0mYPvDU4cytlP+",
+            "Cookie": os.environ['RL_COOKIE']
         }
     )
+    print(data.text)
     data = data.json()
     ranks = []
     for mode in data['data']['segments']:
@@ -772,7 +773,6 @@ async def rlrank(ctx=SlashContext, *, epicid: str):
                           mode['stats']['division']['metadata']['name'],
                           mode['stats']['tier']['value'],
                           mode['stats']['tier']['metadata']['iconUrl']])
-    # find the highest rank using rank[3] (rank value)
     highest = ranks[0]
     for rank in ranks:
         if(rank[3] > highest[3]):
