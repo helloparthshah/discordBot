@@ -738,6 +738,51 @@ async def addgame(ctx=SlashContext, *, game: str, weight: int):
         embed.add_field(name=game, value=games[game], inline=False)
     await ctx.send(embed=embed)
 
+
+@ slash.slash(name="rlrank", description="Get ranks for rocket league")
+async def rlrank(ctx=SlashContext, *, epicid: str):
+    # spoof that we are a browser
+    data = requests.get(
+        "https://api.tracker.gg/api/v2/rocket-league/standard/profile/epic/"+epicid,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Cache-Control": "max-age=0",
+            "DNT": "1",
+            "If-Modified-Since": "Mon, 02 Jan 2023 13:20:32 GMT",
+            "Sec-Ch-Ua": "\"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"108\", \"Google Chrome\";v=\"108\"",
+            "Sec-Ch-Ua-Mobile": "?0",
+            "Sec-Ch-Ua-Platform": "\"Windows\"",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Upgrade-Insecure-Requests": "1",
+            "Cookie": "__cflb=02DiuFQAkRrzD1P1mdm8JatZXtAyjoPD1gzrX6pBvYR9n; X-Mapping-Server=s18; __cf_bm=eWQ1qFwaetme.xpgRNa2N1XMuI5PFamDcvOFTqEOSFk-1672665864-0-AZJgbXPABux8mgyhLXnbhDBGt5NLBL0/4z/83lS7qb0XlYX88uXd7ecBMdafsYz+qeucjH4OpRRRQLmnfHl29cpl5jtPfX0mYPvDU4cytlP+",
+        }
+    )
+    data = data.json()
+    ranks = []
+    for mode in data['data']['segments']:
+        if(mode['type'] == "playlist"):
+            ranks.append([mode['metadata']['name'],
+                          mode['stats']['tier']['metadata']['name'],
+                          mode['stats']['division']['metadata']['name'],
+                          mode['stats']['tier']['value'],
+                          mode['stats']['tier']['metadata']['iconUrl']])
+    # find the highest rank using rank[3] (rank value)
+    highest = ranks[0]
+    for rank in ranks:
+        if(rank[3] > highest[3]):
+            highest = rank
+    embed = discord.Embed(title="Ranks for "+epicid, color=0x00ff00)
+    for rank in ranks:
+        embed.add_field(name=rank[0], value=rank[1]+" "+rank[2], inline=False)
+    embed.set_thumbnail(url=highest[4])
+    await ctx.send(embed=embed)
+
 """ config = {
     "session_token": os.getenv('session_token')
 }
