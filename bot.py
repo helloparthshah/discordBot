@@ -19,6 +19,7 @@ from discord.ext import tasks
 from discord_slash.context import ComponentContext
 from discord_slash.utils.manage_components import create_button, create_actionrow, create_select, create_select_option
 from discord_slash.model import ButtonStyle
+import openai
 
 print("ctypes - Find opus:")
 a = ctypes.util.find_library('opus')
@@ -787,20 +788,28 @@ async def rlrank(ctx=SlashContext, *, epicid: str):
     "session_token": os.getenv('session_token')
 }
 chatbot = Chatbot(config, conversation_id=None) """
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
-""" @ slash.slash(name="chat", description="Talk with the bot")
+@ slash.slash(name="writecode", description="Helps you write code")
 async def chat(ctx=SlashContext, *, message: str):
+    input_prompt = (
+        f"Comment:\n"
+        f"\n"
+        f"{message}"
+        f"\n"
+        f"Code that the comment says:\n"
+        f""
+    )
     await ctx.send("Hmmm...")
-    response = chatbot.get_chat_response(
-        message)['message']
-    print(response)
-    # if more that 2000 characters, split into multiple messages
-    if(len(response) > 2000):
-        for i in range(0, len(response), 2000):
-            await ctx.send(response[i:i+2000])
-    else:
-        await ctx.send(response) """
+    response = openai.Completion.create(
+        model="code-davinci-001",
+        prompt=message,
+        temperature=0.5,
+        max_tokens=500,
+        frequency_penalty=2,
+    )
+    await ctx.send(message+"```"+response['choices'][0]['text']+"```")
 
 
 @ slash.slash(name="help", description="View all of the commands")
