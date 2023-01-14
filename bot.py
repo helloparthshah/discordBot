@@ -794,19 +794,19 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 @ slash.slash(name="writecode", description="Helps you write code")
 async def chat(ctx=SlashContext, *, message: str):
     input_prompt = (
-        f"Comment:\n"
+        f"Instruction:\n"
         f"\n"
         f"{message}"
         f"\n"
-        f"Code that the comment says:\n"
+        f"Code:\n"
         f""
     )
     await ctx.send("Hmmm...")
     response = openai.Completion.create(
         model="code-davinci-001",
-        prompt=message,
-        temperature=0.5,
-        max_tokens=500,
+        prompt=input_prompt,
+        temperature=0.2,
+        max_tokens=400,
         frequency_penalty=2,
     )
     await ctx.send(message+"```"+response['choices'][0]['text']+"```")
