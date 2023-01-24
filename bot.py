@@ -20,6 +20,7 @@ from discord_slash.context import ComponentContext
 from discord_slash.utils.manage_components import create_button, create_actionrow, create_select, create_select_option
 from discord_slash.model import ButtonStyle
 import openai
+from revChatGPT.ChatGPT import Chatbot
 
 print("ctypes - Find opus:")
 a = ctypes.util.find_library('opus')
@@ -784,10 +785,17 @@ async def rlrank(ctx=SlashContext, *, epicid: str):
     embed.set_thumbnail(url=highest[4])
     await ctx.send(embed=embed)
 
-""" config = {
+""" chatbot = Chatbot({
     "session_token": os.getenv('session_token')
-}
-chatbot = Chatbot(config, conversation_id=None) """
+}, conversation_id=None, parent_id=None)
+
+
+@ slash.slash(name="chat", description="Talk to the bot")
+async def chat(ctx=SlashContext, *, message: str):
+    response = chatbot.ask(message, conversation_id=None, parent_id=None)
+    print(response)
+    ctx.send(message+'\n' + response) """
+
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 
@@ -812,6 +820,17 @@ async def chat(ctx=SlashContext, *, message: str):
     await ctx.send(message+"```"+response['choices'][0]['text']+"```")
 
 
+@ slash.slash(name="image", description="Generate an image")
+async def image(ctx=SlashContext, *, message: str):
+    response = openai.Image.create(
+        prompt=message,
+        n=1,
+        size="1024x1024"
+    )
+    image_url = response['data'][0]['url']
+    ctx.send(image_url)
+
+
 @ slash.slash(name="help", description="View all of the commands")
 async def help(ctx=SlashContext):
     # dynamically create the embed
@@ -831,7 +850,7 @@ async def reminder():
     global Started, isOn
     print("Reminder", Started, isOn)
     streams = getStreams("rocket league")
-    if(len(streams) > 0 and not Started):
+    if(len(streams) > 1 and not Started):
         if isOn:
             Started = True
             channel = bot.get_channel(1006713461474066513)

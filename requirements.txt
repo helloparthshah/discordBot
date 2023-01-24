@@ -7,4 +7,5 @@ ffmpeg
 discord-py-interactions
 discord-py-slash-command==3.0.3
 pillow
-openai
+openai==0.26.1
+revChatGPT==0.2.1
