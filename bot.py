@@ -802,22 +802,42 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 @ slash.slash(name="writecode", description="Helps you write code")
 async def chat(ctx=SlashContext, *, message: str):
     input_prompt = (
-        f"Instruction:\n"
+        f"Complete the code for the comment\n"
+        f"### Comment"
         f"\n"
         f"{message}"
         f"\n"
-        f"Code:\n"
-        f""
+        f"### Code"
     )
     await ctx.send("Hmmm...")
     response = openai.Completion.create(
-        model="code-davinci-001",
+        model="code-davinci-002",
         prompt=input_prompt,
-        temperature=0.2,
-        max_tokens=400,
-        frequency_penalty=2,
+        temperature=0,
+        max_tokens=256,
+        top_p=1,
+        frequency_penalty=0,
+        presence_penalty=0,
+        stop=["###"]
     )
     await ctx.send(message+"```"+response['choices'][0]['text']+"```")
+
+
+@ slash.slash(name="atharavsolutions", description="Helps you cheat on your homework")
+async def chat(ctx=SlashContext):
+    test = """Attention all computer science students! Are you tired of losing grades and facing academic penalties for copying code? If yes, Atharav Solutions is here to help you.
+
+Atharav, a student just like you, faced the same problem and failed a class three times due to his inability to copy code effectively. He was determined to find a solution and created Atharav Solutions to help other students like him.
+
+Our company specializes in changing code so it does not look like copied code, helping you avoid plagiarism penalties. With Atharav Solutions, you can say goodbye to lost grades and hello to successful academic careers.
+
+Our team of experts uses innovative techniques to ensure that your code is unique and original, and that you receive the grades you deserve. With Atharav Solutions, you can focus on learning and growing in your computer science studies without the fear of academic penalties.
+
+So, if you're ready to put an end to the problem of copying code and succeed in your computer science classes, choose Atharav Solutions. Contact us today and let us help you achieve your academic goals!
+
+https://atharav-solutions.onrender.com/
+    """
+    await ctx.send(test)
 
 
 @ slash.slash(name="image", description="Generate an image")
