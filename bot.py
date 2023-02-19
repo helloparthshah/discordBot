@@ -1,4 +1,5 @@
 #!/usr/bin/python3
+import urllib.request
 from io import BytesIO
 import random
 from PIL import Image
@@ -849,6 +850,24 @@ async def image(ctx=SlashContext, *, message: str):
     )
     image_url = response['data'][0]['url']
     ctx.send(image_url)
+
+
+@ slash.slash(name="githubstats", description="Get github stats")
+async def githubstats(ctx=SlashContext, *, username: str):
+    await ctx.send("Hmmm...")
+    data = requests.get("https://api.github.com/users/"+username)
+    data = data.json()
+    embed = discord.Embed(title="Github stats for "+username, color=0x00ff00)
+    embed.add_field(name="Followers", value=data['followers'], inline=False)
+    embed.add_field(name="Following", value=data['following'], inline=False)
+    embed.add_field(name="Public repos",
+                    value=data['public_repos'], inline=False)
+    embed.add_field(name="Public gists",
+                    value=data['public_gists'], inline=False)
+    embed.add_field(name="Bio", value=data['bio'], inline=False)
+    embed.set_thumbnail(url=data['avatar_url'])
+    await ctx.send(embed=embed)
+    await ctx.send("https://streak-stats.demolab.com/?user="+username+"&theme=radical&type=png")
 
 
 @ slash.slash(name="help", description="View all of the commands")
