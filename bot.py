@@ -390,20 +390,22 @@ async def yo_mama(ctx=SlashContext, *, user: discord.Member):
 async def porn(ctx=SlashContext, *, user: discord.Member):
     await ctx.send("Dear " + user.mention)
     # Original message
-    message = "I am writing to you today to express my concern about your excessive consumption of pornography. While it is understandable that you may find watching porn to be a source of pleasure, it is important to understand that this behavior can have serious consequences on your mental health and relationships.\nResearch has shown that consuming too much pornography can lead to addiction, decreased sexual satisfaction, and a distorted perception of sexuality. It can also lead to feelings of guilt, shame, and anxiety, and may even contribute to the development of depression.\nFurthermore, excessive porn use can negatively impact your relationships with friends and family, and may even lead to problems in your romantic relationships. It is important to prioritize healthy communication and connection with those around you, rather than relying solely on the instant gratification of pornography.\nI urge you to consider the potential consequences of your behavior and to seek help if you feel that you are struggling to control your consumption of pornography. There are resources available to support you in overcoming this addiction and developing healthier habits.\nSincerely,\nChatGPT"
+    message = "I am writing to you today to express my concern about your excessive consumption of pornography. While it is understandable that you may find watching porn to be a source of pleasure, it is important to understand that this behavior can have serious consequences on your mental health and relationships.\nResearch has shown that consuming too much pornography can lead to addiction, decreased sexual satisfaction, and a distorted perception of sexuality. It can also lead to feelings of guilt, shame, and anxiety, and may even contribute to the development of depression.\nFurthermore, excessive porn use can negatively impact your relationships with friends and family, and may even lead to problems in your romantic relationships. It is important to prioritize healthy communication and connection with those around you, rather than relying solely on the instant gratification of pornography.\nI urge you to consider the potential consequences of your behavior and to seek help if you feel that you are struggling to control your consumption of pornography. There are resources available to support you in overcoming this addiction and developing healthier habits.\nSincerely,\nChatGPT\n"
+    await ctx.send(message)
+    message = "However, one important aspect of my research as a pornography historian is the study of different pornography categories and how they have evolved over time. For example, the emergence of amateur pornography in the 20th century represents a significant shift in the production and consumption of pornography. Amateur pornography challenged the dominance of mainstream, professionally-produced pornography and provided a space for individuals to create and share their own sexual content. This category of pornography has since become increasingly popular, and has even led to the emergence of user-generated content platforms such as OnlyFans.\n Another important category of pornography that I have researched is feminist pornography. This category of pornography emerged in the 1980s as a response to the male-dominated and often exploitative nature of mainstream pornography. Feminist pornography aimed to challenge gender stereotypes and promote sexual agency and empowerment for women. By studying feminist pornography, we can better understand the ways in which pornography has been used to challenge power dynamics and promote social change.\nA third category of pornography that I have researched is pornography that features people of color. Historically, mainstream pornography has been overwhelmingly dominated by white performers, perpetuating racial stereotypes and contributing to the marginalization of people of color. By examining the history of pornography that features people of color, we can better understand the ways in which race and ethnicity have been depicted and negotiated in pornography, and the impact this has had on broader social and cultural attitudes towards race and sexuality.\nOverall, the study of different pornography categories is important because it helps us to understand the diversity of sexual expression and representation, and sheds light on the complex ways in which pornography intersects with broader social and cultural issues such as gender, race, and power."
+    await ctx.send(message)
+# # Split message into substrings of 20 characters
+#     substrings = []
+#     while message:
+#         substrings.append(message[:20])
+#         message = message[20:]
 
-# Split message into substrings of 20 characters
-    substrings = []
-    while message:
-        substrings.append(message[:20])
-        message = message[20:]
+#     # Create Discord embed and add fields
+#     embed = discord.Embed(title="A Letter", color=0x00ff00)
+#     for substring in substrings:
+#         embed.add_field(name="\u200b", value=substring, inline=False)
 
-    # Create Discord embed and add fields
-    embed = discord.Embed(title="A Letter", color=0x00ff00)
-    for substring in substrings:
-        embed.add_field(name="\u200b", value=substring, inline=False)
-
-    await ctx.send(embed=embed)
+#     await ctx.send(embed=embed)
 
 @slash.slash(name="rickroll", description="Never gonna give you up")
 async def rickroll(ctx=SlashContext, *, link: str, user: discord.Member):
