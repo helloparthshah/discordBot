@@ -1,12 +1,8 @@
 python-dotenv
 discord.py==1.7.3
-youtube-dl
-google-api-python-client
 pynacl
-ffmpeg
 discord-py-interactions
 discord-py-slash-command==3.0.3
 pillow
-openai==0.26.1
-revChatGPT==0.2.1
 cairosvg
+google-generativeai
