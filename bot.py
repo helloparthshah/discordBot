@@ -275,6 +275,33 @@ async def rlrank(ctx=SlashContext, *, epicid: str):
 palm.configure(api_key=os.getenv("PALM_API_KEY"))
 
 
+@slash.slash(name="writecode", description="Write code for you")
+async def writecode(ctx=SlashContext, *, message: str):
+    defaults = {
+        'model': 'models/chat-bison-001',
+        'temperature': 0.25,
+        'candidate_count': 1,
+        'top_k': 40,
+        'top_p': 0.95,
+    }
+    context = "Write Python code to perform what the user says."
+    examples = [
+        [
+            "Write a function to add 2 numbers",
+            "Sure, here is the function to add 2 numbers:\n```python\ndef sum(a,b):\n    return a+b\n```"
+        ]
+    ]
+    messages = []
+    messages.append("NEXT REQUEST")
+    response = palm.chat(
+        **defaults,
+        context=context,
+        examples=examples,
+        messages=messages
+    )
+    await ctx.send(response.last)
+
+
 @ slash.slash(name="solutionsguy", description="Modify your code")
 async def chat(ctx=SlashContext, *, message: str):
     defaults = {
@@ -287,26 +314,26 @@ async def chat(ctx=SlashContext, *, message: str):
     await ctx.send("Hmmm...")
     context = "Rewrite this Python code such that the logic remains the same but the code looks completely different."
     examples = [
-    [
-        "def sum(a,b):\n    return a + b",
-        "Sure, here is a different way to write the code:\n```python\nsum = lambda a, b: a + b\n```"
-    ],
-    [
-        "def sum(a,b):\n    return a + b",
-        "Sure, here is a different way to write the code:\n```python\ndef add(num1,num2):\n    total=num1+num2\n    return total\n```"
-    ],
-    [
-        "for i in range(1, 11):\n    print(i)",
-        "Sure, here is a different way to write the code:\n```python\ni = 1\nwhile(i<=10):\n    print(i)\n    i += 1\n```"
-    ],
-    [
-        "import json\n\nwith open('file.json', 'r') as f:\n  data = json.load(f)",
-        "Sure, here is a different way to write the code:\n```python\nimport ast\n\nfile_path = 'file.json'\n\nwith open(file_path, 'r') as file:\n    contents = file.read()\n    data = ast.literal_eval(contents)\n```"
-    ],
-    [
-        "print(\"Hello World\")",
-        "Sure, here is a different way to write the code:\n```python\noutput=\"Hello World\"\nprint(output)\n```"
-    ]
+        [
+            "def sum(a,b):\n    return a + b",
+            "Sure, here is a different way to write the code:\n```python\nsum = lambda a, b: a + b\n```"
+        ],
+        [
+            "def sum(a,b):\n    return a + b",
+            "Sure, here is a different way to write the code:\n```python\ndef add(num1,num2):\n    total=num1+num2\n    return total\n```"
+        ],
+        [
+            "for i in range(1, 11):\n    print(i)",
+            "Sure, here is a different way to write the code:\n```python\ni = 1\nwhile(i<=10):\n    print(i)\n    i += 1\n```"
+        ],
+        [
+            "import json\n\nwith open('file.json', 'r') as f:\n  data = json.load(f)",
+            "Sure, here is a different way to write the code:\n```python\nimport ast\n\nfile_path = 'file.json'\n\nwith open(file_path, 'r') as file:\n    contents = file.read()\n    data = ast.literal_eval(contents)\n```"
+        ],
+        [
+            "print(\"Hello World\")",
+            "Sure, here is a different way to write the code:\n```python\noutput=\"Hello World\"\nprint(output)\n```"
+        ]
     ]
     messages = []
     messages.append(message)
