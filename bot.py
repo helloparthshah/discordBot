@@ -294,9 +294,12 @@ async def writecode(ctx=SlashContext, *, message: str):
         [
             "Write a function to find the factorial of a number",
             "Sure, here is the function to find the factorial of a number:\n```python\ndef factorial(n):\n    if n == 0:\n        return 1\n    else:\n        return n * factorial(n-1)\n```"
-        ],
+        ]
     ]
-    messages = []
+    messages = [
+        "Write a function to reverse a list",
+        "Sure, here is a function to reverse a list:\n\n```python\ndef reverse_list(list):\n    # Create a new list to store the reversed list\n    reversed_list = []\n\n    # Iterate through the original list\n    for item in list:\n        # Add the item to the end of the reversed list\n        reversed_list.append(item)\n\n    # Return the reversed list\n    return reversed_list\n```\n\nHere is an example of how to use the function:\n\n```python\nlist = [1, 2, 3, 4, 5]\nreversed_list = reverse_list(list)\nprint(reversed_list)\n```\n\nThe output of the code is:\n\n```\n[5, 4, 3, 2, 1]\n```"
+    ]
     messages.append("NEXT REQUEST")
     response = palm.chat(
         **defaults,
