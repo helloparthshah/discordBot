@@ -290,7 +290,11 @@ async def writecode(ctx=SlashContext, *, message: str):
         [
             "Write a function to add 2 numbers",
             "Sure, here is the function to add 2 numbers:\n```python\ndef sum(a,b):\n    return a+b\n```"
-        ]
+        ],
+        [
+            "Write a function to find the factorial of a number",
+            "Sure, here is the function to find the factorial of a number:\n```python\ndef factorial(n):\n    if n == 0:\n        return 1\n    else:\n        return n * factorial(n-1)\n```"
+        ],
     ]
     messages = []
     messages.append("NEXT REQUEST")
