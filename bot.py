@@ -277,6 +277,7 @@ palm.configure(api_key=os.getenv("PALM_API_KEY"))
 
 @slash.slash(name="writecode", description="Write code for you")
 async def writecode(ctx=SlashContext, *, message: str):
+    await ctx.send("Hmmm...")
     defaults = {
         'model': 'models/chat-bison-001',
         'temperature': 0.25,
