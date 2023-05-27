@@ -285,25 +285,30 @@ async def chat(ctx=SlashContext, *, message: str):
         'top_p': 0.95,
     }
     await ctx.send("Hmmm...")
-    context = "Rewrite this python code such that the logic remains the same but the code looks completely different"
+    context = "Rewrite this Python code such that the logic remains the same but the code looks completely different."
     examples = [
-        [
-            "def sum(a,b):\n    return a + b",
-            "sum = lambda a, b: a + b"
-        ],
-        [
-            "def sum(a,b):\n    return a + b",
-            "def add(num1,num2):\n    total=num1+num2\n    return total"
-        ],
-        [
-            "for i in range(1, 11):\n    print(i)",
-            "i = 1\nwhile(i<=10):\n    print(i)\n    i += 1"
-        ]
+    [
+        "def sum(a,b):\n    return a + b",
+        "Sure, here is a different way to write the code:\n```python\nsum = lambda a, b: a + b\n```"
+    ],
+    [
+        "def sum(a,b):\n    return a + b",
+        "Sure, here is a different way to write the code:\n```python\ndef add(num1,num2):\n    total=num1+num2\n    return total\n```"
+    ],
+    [
+        "for i in range(1, 11):\n    print(i)",
+        "Sure, here is a different way to write the code:\n```python\ni = 1\nwhile(i<=10):\n    print(i)\n    i += 1\n```"
+    ],
+    [
+        "import json\n\nwith open('file.json', 'r') as f:\n  data = json.load(f)",
+        "Sure, here is a different way to write the code:\n```python\nimport ast\n\nfile_path = 'file.json'\n\nwith open(file_path, 'r') as file:\n    contents = file.read()\n    data = ast.literal_eval(contents)\n```"
+    ],
+    [
+        "print(\"Hello World\")",
+        "Sure, here is a different way to write the code:\n```python\noutput=\"Hello World\"\nprint(output)\n```"
     ]
-    messages = [
-        "start, end = 1, 100for num in range(start, end + 1):\\n    if num % 2 == 0:\\n        print(num)",
-        "Sure, here is a different way to write the code:\n\n```python\neven_numbers = []\nfor num in range(start, end + 1):\n    if num % 2 == 0:\n        even_numbers.append(num)\n\nfor num in even_numbers:\n    print(num)\n```"
     ]
+    messages = []
     messages.append(message)
     response = palm.chat(
         **defaults,
