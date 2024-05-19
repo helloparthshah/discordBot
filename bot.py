@@ -19,6 +19,8 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 REMOVE_BG_KEY = os.getenv('REMOVE_BG_KEY')
 OPEN_WEATHER_KEY = os.getenv('OPEN_WEATHER_KEY')
 PALM_API_KEY = os.getenv('PALM_API_KEY')
+PLAY_HT_KEY = os.getenv('PLAY_HT_KEY')
+PLAY_HT_APP_ID = os.getenv('PLAY_HT_APP_ID')
 
 bot = Client(intents=Intents.default())
 slash = SlashCommand(bot, sync_commands=True)
@@ -33,6 +35,47 @@ async def yo_mama(ctx=SlashContext, *, user: discord.Member):
     await ctx.send(user.mention)
     await ctx.send(embed=discord.Embed(
         title=data['joke'], color=0x00ff00))
+
+@slash.slash(name="tts", description="Text to speech")
+async def tts(ctx=SlashContext, *, text: str):
+    await ctx.send("Bot will now speak: "+text)
+    url = "https://api.play.ht/api/v2/tts/stream"
+    payload = {
+    "text": text,
+    "voice": "s3://voice-cloning-zero-shot/29652fa7-7a8c-4162-a69a-509d2b6bfc05/Harshil/manifest.json",
+    "output_format": "mp3",
+    "voice_engine": "PlayHT2.0"
+    }
+    headers = {
+    "accept": "audio/mpeg",
+    "content-type": "application/json",
+    "AUTHORIZATION": PLAY_HT_KEY,
+    "X-USER-ID": PLAY_HT_APP_ID
+    }
+    try:
+        print("Connecting to voice channel")
+        # if not joined a voice channel, join the user's voice channel
+        if(not ctx.author.voice):
+            return await ctx.channel.send('Join a channel first')
+        voice_channel = ctx.author.voice.channel
+        voice = discord.utils.get(bot.voice_clients, guild=ctx.guild)
+        if not ctx.voice_client:
+            voice = await voice_channel.connect()
+        else:
+            voice = ctx.voice_client
+            voice.stop()
+        print("Sending request")
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            # save the audio file
+            with open('tts.mp3', 'wb') as f:
+                f.write(response.content)
+            voice.play(discord.FFmpegPCMAudio('tts.mp3'))
+            # await ctx.send(file=discord.File(BytesIO(response.content), "tts.mp3"))
+        else:
+            await ctx.send("Error: "+str(response.status_code))
+    except Exception as e:
+        await ctx.send("Error: "+str(e))
 
 
 @slash.slash(name="porn", description="Porn PSA")
