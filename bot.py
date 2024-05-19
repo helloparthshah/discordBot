@@ -399,45 +399,123 @@ async def help(ctx=SlashContext):
                             value=slash.commands[command].description, inline=False)
     await ctx.send(embed=embed)
 
+@ slash.slash(name="dc", description="Disconnet a user from the voice channel")
+async def dc(ctx=SlashContext, *, user: discord.Member):
+    if not ctx.author.guild_permissions.move_members:
+        await ctx.send("You do not have permission to move members")
+        return
+    try:
+        await user.move_to(None)
+        await ctx.send("Disconnected "+user.mention)
+    except Exception as e:
+        await ctx.send("Error: "+str(e))
+
+@ slash.slash(name="move", description="Move a user to a voice channel")
+async def move(ctx=SlashContext, *, user: discord.Member, channel: discord.VoiceChannel):
+    if not ctx.author.guild_permissions.move_members:
+        await ctx.send("You do not have permission to move members")
+        return
+    try:
+        await user.move_to(channel)
+        await ctx.send("Moved "+user.mention+" to "+channel.name)
+    except Exception as e:
+        await ctx.send("Error: "+str(e))
+
+async def move_randomly():
+    guild = bot.get_guild(1030766503949254656)
+    channels = guild.voice_channels
+    # find channel with most members
+    max_members = 0
+    channel_with_most_members = channels[0]
+    for channel in channels:
+        print(channel.name, channel.members)
+        if(len(channel.members) > max_members):
+            max_members = len(channel.members)
+            channel_with_most_members = channel
+    print("Channel with most members: "+channel_with_most_members.name)
+    members = channel_with_most_members.members
+    if(len(members) > 0):
+        # move a random member to a random channel
+        channels.remove(channel_with_most_members)
+        member = random.choice(members)
+        new_channel = random.choice(channels)
+        await member.move_to(new_channel)
+        return member, new_channel
+    return None, None
+
+@slash.slash(name="random_move", description="Randomly move a user to a voice channel")
+async def random_move(ctx=SlashContext):
+    # check if user has move permissions
+    if not ctx.author.guild_permissions.move_members:
+        await ctx.send("You do not have permission to move members")
+        return
+    member, new_channel = await move_randomly()
+    if member:
+        await ctx.send("Moved "+member.name+" to "+new_channel.name)
+    else:
+        await ctx.send("No one to move")
+
+@slash.slash(name="start_auto_move", description="Start moving users randomly every 10 minutes")
+async def start_auto_move(ctx=SlashContext):
+    global auto_move_randomly
+    auto_move_randomly.start()
+    await ctx.send("Started moving users randomly every 10 minutes")
+
+@slash.slash(name="stop_auto_move", description="Stop moving users randomly every 10 minutes")
+async def stop_auto_move(ctx=SlashContext):
+    global auto_move_randomly
+    auto_move_randomly.stop()
+    await ctx.send("Stopped moving users randomly every 10 minutes")
+
+@ tasks.loop(minutes=10)
+async def auto_move_randomly():
+    # 10% chance of moving a user every 10 minutes
+    if(random.random() < 0.1):
+        member, new_channel = await move_randomly()
+        if member:
+            print("Moved "+member.name+" to "+new_channel.name)
+        else:
+            print("No one to move")
+
 Started = False
 isOn = False
 
 
-@ tasks.loop(minutes=5)
-async def reminder():
-    global Started, isOn
-    print("Reminder", Started, isOn)
-    streams = getStreams("rocket league")
-    if(len(streams) > 1 and not Started):
-        if isOn:
-            Started = True
-            channel = bot.get_channel(1006713461474066513)
-            allowed_mentions = discord.AllowedMentions(everyone=True)
-            await channel.send(content="@everyone", allowed_mentions=allowed_mentions)
-            embed = discord.Embed(
-                title="Rocket League drops are live!", color=0x00ff00)
-            for stream in streams:
-                if(stream['node']['broadcaster']):
-                    embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
-                                    stream['node']['broadcaster']['login'], inline=False)
-            await channel.send(embed=embed, components=[
-                create_actionrow(
-                    create_button(
-                        style=ButtonStyle.URL,
-                        label="Open in browser",
-                        url="https://www.twitch.tv/directory/game/rocket%20league?tl=DropsEnabled"
-                    ),
-                    create_button(
-                        style=ButtonStyle.blue,
-                        label="Refresh",
-                    )
-                )
-            ])
-        else:
-            isOn = True
-    elif(len(streams) == 0):
-        Started = False
-        isOn = False
+# @ tasks.loop(minutes=5)
+# async def reminder():
+#     global Started, isOn
+#     print("Reminder", Started, isOn)
+#     streams = getStreams("rocket league")
+#     if(len(streams) > 1 and not Started):
+#         if isOn:
+#             Started = True
+#             channel = bot.get_channel(1006713461474066513)
+#             allowed_mentions = discord.AllowedMentions(everyone=True)
+#             await channel.send(content="@everyone", allowed_mentions=allowed_mentions)
+#             embed = discord.Embed(
+#                 title="Rocket League drops are live!", color=0x00ff00)
+#             for stream in streams:
+#                 if(stream['node']['broadcaster']):
+#                     embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
+#                                     stream['node']['broadcaster']['login'], inline=False)
+#             await channel.send(embed=embed, components=[
+#                 create_actionrow(
+#                     create_button(
+#                         style=ButtonStyle.URL,
+#                         label="Open in browser",
+#                         url="https://www.twitch.tv/directory/game/rocket%20league?tl=DropsEnabled"
+#                     ),
+#                     create_button(
+#                         style=ButtonStyle.blue,
+#                         label="Refresh",
+#                     )
+#                 )
+#             ])
+#         else:
+#             isOn = True
+#     elif(len(streams) == 0):
+#         Started = False
+#         isOn = False
 
 
 @ bot.event
@@ -454,7 +532,7 @@ async def on_message(message):
 async def on_ready():
     print('client ready')
     await bot.change_presence(activity=discord.Game(name=f"/help"))
-    reminder.start()
+    # reminder.start()
 
 print("Running bot")
 
