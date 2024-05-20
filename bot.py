@@ -29,6 +29,8 @@ PLAY_HT_APP_ID = os.getenv('PLAY_HT_APP_ID')
 
 bot = interactions.Client()
 
+cloned_voices = []
+
 
 @slash_command(name="yo_mama", description="Yo mama")
 async def yo_mama(ctx=SlashContext, *, user: discord.Member):
@@ -49,12 +51,19 @@ async def yo_mama(ctx=SlashContext, *, user: discord.Member):
     required=True,
     opt_type=OptionType.STRING,
 )
-async def tts(ctx=SlashContext, *, text: str):
+@slash_option(
+    name="voice",
+    description="The voice to use",
+    required=False,
+    opt_type=OptionType.STRING,
+    autocomplete=True
+)
+async def tts(ctx=SlashContext, *, text: str, voice: str = "s3://voice-cloning-zero-shot/29652fa7-7a8c-4162-a69a-509d2b6bfc05/Harshil/manifest.json"):
     await ctx.defer()
     url = "https://api.play.ht/api/v2/tts/stream"
     payload = {
         "text": text,
-        "voice": "s3://voice-cloning-zero-shot/29652fa7-7a8c-4162-a69a-509d2b6bfc05/Harshil/manifest.json",
+        "voice": voice,
         "output_format": "mp3",
         "voice_engine": "PlayHT2.0"
     }
@@ -85,6 +94,24 @@ async def tts(ctx=SlashContext, *, text: str):
     else:
         await ctx.send("Error: "+str(response.status_code))
 
+
+@tts.autocomplete("voice")
+async def autocomplete(ctx: AutocompleteContext):
+    string_option_input = ctx.input_text  # can be empty/None
+    # you can use ctx.kwargs.get("name") to get the current state of other options - note they can be empty too
+
+    # make sure you respond within three seconds
+    choices = []
+    for voice in cloned_voices:
+        choices.append({
+            "name": voice['name'],
+            "value": voice['id']
+        })
+    await ctx.send(
+        choices=choices
+    )
+
+
 @slash_command(name="record", description="record some audio")
 async def record(ctx: interactions.SlashContext):
     await ctx.defer()
@@ -95,6 +122,7 @@ async def record(ctx: interactions.SlashContext):
     await asyncio.sleep(10)
     await voice_state.stop_recording()
     await ctx.send(files=[interactions.File(file, file_name="user_id.mp3") for user_id, file in voice_state.recorder.output.items()])
+
 
 @slash_command(name="play", description="play a song!")
 @slash_option(
@@ -178,6 +206,7 @@ async def play_file(ctx=SlashContext, *, file: discord.Attachment):
         await ctx.author.voice.channel.connect()
     else:
         await ctx.voice_state.move(ctx.author.voice.channel)
+    print("Playing "+file.url)
     audio = AudioVolume(file.url)
     await ctx.send("Playing "+file.url)
     await ctx.voice_state.play(audio)
@@ -740,6 +769,15 @@ async def on_message_create(event):
 async def on_startup():
     print("Bot is ready!")
     await bot.change_presence(activity=discord.Game(name=f"/help"))
+    global cloned_voices
+
+    url = "https://api.play.ht/api/v2/cloned-voices"
+    headers = {
+        "AUTHORIZATION": PLAY_HT_KEY,
+        "X-USER-ID": PLAY_HT_APP_ID
+    }
+    response = requests.get(url, headers=headers)
+    cloned_voices = response.json()
 
 print("Running bot")
 
