@@ -127,6 +127,7 @@ async def stop(ctx=SlashContext):
     if not ctx.voice_state:
         return await ctx.send('Not connected to any voice channel')
     await ctx.voice_state.stop()
+    await ctx.send('Stopped the audio')
 
 
 @slash_command(name="pause", description="Pause the audio")
@@ -134,7 +135,8 @@ async def pause(ctx=SlashContext):
     await ctx.defer()
     if not ctx.voice_state:
         return await ctx.send('Not connected to any voice channel')
-    await ctx.voice_state.pause()
+    ctx.voice_state.pause()
+    await ctx.send('Paused the audio')
 
 
 @slash_command(name="resume", description="Resume the audio")
@@ -142,7 +144,8 @@ async def resume(ctx=SlashContext):
     await ctx.defer()
     if not ctx.voice_state:
         return await ctx.send('Not connected to any voice channel')
-    await ctx.voice_state.resume()
+    ctx.voice_state.resume()
+    await ctx.send('Resumed the audio')
 
 
 @slash_command(name="volume", description="Change the volume")
