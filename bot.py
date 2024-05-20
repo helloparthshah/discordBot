@@ -62,8 +62,9 @@ async def tts(ctx=SlashContext, *, text: str):
         if not ctx.voice_client:
             voice = await voice_channel.connect()
         else:
-            voice = ctx.voice_client
+            voice = await voice.move_to(voice_channel)
             voice.stop()
+
         print("Sending request")
         response = requests.post(url, json=payload, headers=headers)
         if response.status_code == 200:
