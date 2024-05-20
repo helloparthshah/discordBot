@@ -1,8 +1,8 @@
-python-dotenv
 discord.py==1.7.3
-pynacl
-discord-py-interactions
-discord-py-slash-command==3.0.3
-pillow
-cairosvg
-google-generativeai
+discord_py_interactions==5.12.1
+discord_py_slash_command==3.0.3
+Pillow==10.3.0
+protobuf==5.26.1
+python-dotenv==1.0.1
+pytube==15.0.0
+Requests==2.31.0
