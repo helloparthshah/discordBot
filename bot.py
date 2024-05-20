@@ -85,6 +85,16 @@ async def tts(ctx=SlashContext, *, text: str):
     else:
         await ctx.send("Error: "+str(response.status_code))
 
+@slash_command(name="record", description="record some audio")
+async def record(ctx: interactions.SlashContext):
+    await ctx.defer()
+    voice_state = await ctx.author.voice.channel.connect()
+
+    # Start recording
+    await voice_state.start_recording()
+    await asyncio.sleep(10)
+    await voice_state.stop_recording()
+    await ctx.send(files=[interactions.File(file, file_name="user_id.mp3") for user_id, file in voice_state.recorder.output.items()])
 
 @slash_command(name="play", description="play a song!")
 @slash_option(
