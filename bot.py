@@ -16,6 +16,8 @@ import google.generativeai as palm
 from interactions import AutocompleteContext, SlashContext, Embed
 from interactions.api.events import Component
 from interactions.api.voice.audio import AudioVolume, Audio
+from pytube import YouTube
+import os
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -86,20 +88,66 @@ async def tts(ctx=SlashContext, *, text: str):
 
 @slash_command(name="play", description="play a song!")
 @slash_option(
-    name="song",
+    name="link",
     description="The song to play",
     required=True,
     opt_type=OptionType.STRING
 )
-async def play(ctx: SlashContext, *, song: str):
+async def play(ctx: SlashContext, *, link: str):
+    await ctx.defer()
     if not ctx.voice_state:
         await ctx.author.voice.channel.connect()
 
+    yt = YouTube(link)
+
+    # extract only audio
+    video = yt.streams.filter(only_audio=True).first()
+    out_file = video.download(output_path='.')
+
     # Get the audio using YTDL
-    audio = AudioVolume(song)
-    await ctx.send(f"Now Playing: **{song}**")
+    audio = AudioVolume(out_file)
+    await ctx.send(f"Now Playing: **{link}**")
     # Play the audio
     await ctx.voice_state.play(audio)
+
+
+@slash_command(name="stop", description="Stop the audio")
+async def stop(ctx=SlashContext):
+    await ctx.defer()
+    if not ctx.voice_state:
+        return await ctx.send('Not connected to any voice channel')
+    await ctx.voice_state.stop()
+
+
+@slash_command(name="pause", description="Pause the audio")
+async def pause(ctx=SlashContext):
+    await ctx.defer()
+    if not ctx.voice_state:
+        return await ctx.send('Not connected to any voice channel')
+    await ctx.voice_state.pause()
+
+
+@slash_command(name="resume", description="Resume the audio")
+async def resume(ctx=SlashContext):
+    await ctx.defer()
+    if not ctx.voice_state:
+        return await ctx.send('Not connected to any voice channel')
+    await ctx.voice_state.resume()
+
+
+@slash_command(name="volume", description="Change the volume")
+@slash_option(
+    name="volume",
+    description="The volume to set",
+    required=True,
+    opt_type=OptionType.INTEGER
+)
+async def volume(ctx=SlashContext, *, volume: int):
+    await ctx.defer()
+    if not ctx.voice_state:
+        return await ctx.send('Not connected to any voice channel')
+    ctx.voice_state.volume = volume / 100
+    await ctx.send(f"Volume set to {volume}%")
 
 
 @slash_command(name="play_file", description="Play an audio file")
