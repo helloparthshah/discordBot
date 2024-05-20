@@ -2,17 +2,20 @@
 from io import BytesIO
 import random
 from PIL import Image
+from interactions import Intents, OptionType, listen, slash_command, slash_option
+import interactions
 import requests
 import os
 import discord
 from dotenv import load_dotenv
-from discord import Client, Intents, Embed
 import asyncio
-from discord_slash import SlashCommand, SlashContext
 from discord.ext import tasks
 from discord_slash.utils.manage_components import create_button, create_actionrow
 from discord_slash.model import ButtonStyle
 import google.generativeai as palm
+from interactions import AutocompleteContext, SlashContext, Embed
+from interactions.api.events import Component
+from interactions.api.voice.audio import AudioVolume, Audio
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -22,12 +25,12 @@ PALM_API_KEY = os.getenv('PALM_API_KEY')
 PLAY_HT_KEY = os.getenv('PLAY_HT_KEY')
 PLAY_HT_APP_ID = os.getenv('PLAY_HT_APP_ID')
 
-bot = Client(intents=Intents.default())
-slash = SlashCommand(bot, sync_commands=True)
+bot = interactions.Client()
 
 
-@slash.slash(name="yo_mama", description="Yo mama")
+@slash_command(name="yo_mama", description="Yo mama")
 async def yo_mama(ctx=SlashContext, *, user: discord.Member):
+    await ctx.defer()
     # send a get request to https://api.yomomma.info/
     # read the response and send it as a message
     response = requests.get('https://api.yomomma.info/')
@@ -36,69 +39,116 @@ async def yo_mama(ctx=SlashContext, *, user: discord.Member):
     await ctx.send(embed=discord.Embed(
         title=data['joke'], color=0x00ff00))
 
-@slash.slash(name="tts", description="Text to speech")
+
+@slash_command(name="tts", description="Text to speech")
+@slash_option(
+    name="text",
+    description="String Option",
+    required=True,
+    opt_type=OptionType.STRING,
+)
 async def tts(ctx=SlashContext, *, text: str):
-    await ctx.send("Bot will now speak: "+text)
+    await ctx.defer()
     url = "https://api.play.ht/api/v2/tts/stream"
     payload = {
-    "text": text,
-    "voice": "s3://voice-cloning-zero-shot/29652fa7-7a8c-4162-a69a-509d2b6bfc05/Harshil/manifest.json",
-    "output_format": "mp3",
-    "voice_engine": "PlayHT2.0"
+        "text": text,
+        "voice": "s3://voice-cloning-zero-shot/29652fa7-7a8c-4162-a69a-509d2b6bfc05/Harshil/manifest.json",
+        "output_format": "mp3",
+        "voice_engine": "PlayHT2.0"
     }
     headers = {
-    "accept": "audio/mpeg",
-    "content-type": "application/json",
-    "AUTHORIZATION": PLAY_HT_KEY,
-    "X-USER-ID": PLAY_HT_APP_ID
+        "accept": "audio/mpeg",
+        "content-type": "application/json",
+        "AUTHORIZATION": PLAY_HT_KEY,
+        "X-USER-ID": PLAY_HT_APP_ID
     }
-    try:
-        print("Connecting to voice channel")
-        # if not joined a voice channel, join the user's voice channel
-        if(not ctx.author.voice):
-            return await ctx.channel.send('Join a channel first')
-        voice_channel = ctx.author.voice.channel
-        voice = discord.utils.get(bot.voice_clients, guild=ctx.guild)
-        if not ctx.voice_client:
-            voice = await voice_channel.connect()
-        else:
-            voice = await voice.move_to(voice_channel)
-            voice.stop()
+    print("Connecting to voice channel")
+    # if not joined a voice channel, join the user's voice channel
+    if (not ctx.author.voice):
+        return await ctx.channel.send('Join a channel first')
+    if not ctx.voice_state:
+        await ctx.author.voice.channel.connect()
+    else:
+        await ctx.voice_state.move(ctx.author.voice.channel)
 
-        print("Sending request")
-        response = requests.post(url, json=payload, headers=headers)
-        if response.status_code == 200:
-            # save the audio file
-            with open('tts.mp3', 'wb') as f:
-                f.write(response.content)
-            voice.play(discord.FFmpegPCMAudio('tts.mp3'))
-            # await ctx.send(file=discord.File(BytesIO(response.content), "tts.mp3"))
-        else:
-            await ctx.send("Error: "+str(response.status_code))
-    except Exception as e:
-        await ctx.send("Error: "+str(e))
+    print("Sending request")
+    response = requests.post(url, json=payload, headers=headers)
+    if response.status_code == 200:
+        # save the audio file
+        with open('tts.mp3', 'wb') as f:
+            f.write(response.content)
+        audio = AudioVolume('tts.mp3')
+        await ctx.send(file=interactions.File('tts.mp3'))
+        await ctx.voice_state.play(audio)
+    else:
+        await ctx.send("Error: "+str(response.status_code))
 
 
-@slash.slash(name="porn", description="Porn PSA")
+@slash_command(name="play", description="play a song!")
+@slash_option(
+    name="song",
+    description="The song to play",
+    required=True,
+    opt_type=OptionType.STRING
+)
+async def play(ctx: SlashContext, *, song: str):
+    if not ctx.voice_state:
+        await ctx.author.voice.channel.connect()
+
+    # Get the audio using YTDL
+    audio = AudioVolume(song)
+    await ctx.send(f"Now Playing: **{song}**")
+    # Play the audio
+    await ctx.voice_state.play(audio)
+
+
+@slash_command(name="play_file", description="Play an audio file")
+@slash_option(
+    name="file",
+    description="Upload file to play",
+    required=True,
+    opt_type=OptionType.ATTACHMENT
+)
+async def play_file(ctx=SlashContext, *, file: discord.Attachment):
+    await ctx.defer()
+    if (not ctx.author.voice):
+        return await ctx.channel.send('Join a channel first')
+    if not ctx.voice_state:
+        await ctx.author.voice.channel.connect()
+    else:
+        await ctx.voice_state.move(ctx.author.voice.channel)
+    audio = AudioVolume(file.url)
+    await ctx.send("Playing "+file.url)
+    await ctx.voice_state.play(audio)
+
+
+@slash_command(name="porn", description="Porn PSA")
+@slash_option(
+    name="user",
+    description="The user to send the PSA to",
+    opt_type=OptionType.USER,
+    required=True
+)
 async def porn(ctx=SlashContext, *, user: discord.Member):
     await ctx.send("Dear " + user.mention)
     # Original message
     message = "I am writing to you today to express my concern about your excessive consumption of pornography. While it is understandable that you may find watching porn to be a source of pleasure, it is important to understand that this behavior can have serious consequences on your mental health and relationships.\nResearch has shown that consuming too much pornography can lead to addiction, decreased sexual satisfaction, and a distorted perception of sexuality. It can also lead to feelings of guilt, shame, and anxiety, and may even contribute to the development of depression.\nFurthermore, excessive porn use can negatively impact your relationships with friends and family, and may even lead to problems in your romantic relationships. It is important to prioritize healthy communication and connection with those around you, rather than relying solely on the instant gratification of pornography.\nI urge you to consider the potential consequences of your behavior and to seek help if you feel that you are struggling to control your consumption of pornography. There are resources available to support you in overcoming this addiction and developing healthier habits.\nSincerely,\nChatGPT\n"
-    await ctx.send(message)
-    message = "However, one important aspect of my research as a pornography historian is the study of different pornography categories and how they have evolved over time. For example, the emergence of amateur pornography in the 20th century represents a significant shift in the production and consumption of pornography. Amateur pornography challenged the dominance of mainstream, professionally-produced pornography and provided a space for individuals to create and share their own sexual content. This category of pornography has since become increasingly popular, and has even led to the emergence of user-generated content platforms such as OnlyFans.\n Another important category of pornography that I have researched is feminist pornography. This category of pornography emerged in the 1980s as a response to the male-dominated and often exploitative nature of mainstream pornography. Feminist pornography aimed to challenge gender stereotypes and promote sexual agency and empowerment for women. By studying feminist pornography, we can better understand the ways in which pornography has been used to challenge power dynamics and promote social change.\nA third category of pornography that I have researched is pornography that features people of color. Historically, mainstream pornography has been overwhelmingly dominated by white performers, perpetuating racial stereotypes and contributing to the marginalization of people of color. By examining the history of pornography that features people of color, we can better understand the ways in which race and ethnicity have been depicted and negotiated in pornography, and the impact this has had on broader social and cultural attitudes towards race and sexuality.\nOverall, the study of different pornography categories is important because it helps us to understand the diversity of sexual expression and representation, and sheds light on the complex ways in which pornography intersects with broader social and cultural issues such as gender, race, and power."
-    await ctx.send(message)
+    # automatically split the message into multiple messages based on 2000 character limit
+    while len(message) > 0:
+        await ctx.send(message[:2000])
+        message = message[2000:]
 
 
-@slash.slash(name="rickroll", description="Never gonna give you up")
-async def rickroll(ctx=SlashContext, *, link: str, user: discord.Member):
-    await ctx.send(user.mention)
-    await ctx.send("https://www.latlmes.com/breaking/"+link.replace(" ", "-"))
-
-
-@slash.slash(name="remove_bg", description="Remove the background")
+@slash_command(name="remove_bg", description="Remove the background")
+@slash_option(
+    name="user",
+    description="The user to remove the background for",
+    opt_type=OptionType.USER,
+    required=True
+)
 async def remove_bg(ctx=SlashContext, *, user: discord.Member):
+    await ctx.defer()
     # User remove.bg to remove the background
-    await ctx.send(user.mention)
     image = Image.open(BytesIO(requests.get(user.avatar_url).content))
     image.save('temp.png')
     response = requests.post(
@@ -110,16 +160,24 @@ async def remove_bg(ctx=SlashContext, *, user: discord.Member):
     if response.status_code == requests.codes.ok:
         with open('temp.png', 'wb') as out:
             out.write(response.content)
-        await ctx.send(file=discord.File('temp.png'))
+        await ctx.send(user.mention)
+        await ctx.send(file='temp.png')
 
 
-@slash.slash(name="weather", description="Get the weather")
+@slash_command(name="weather", description="Get the weather")
+@slash_option(
+    name="city",
+    description="The city to get weather for",
+    opt_type=OptionType.STRING,
+    required=True
+)
 async def weather(ctx=SlashContext, *, city: str):
+    await ctx.defer()
     response = requests.get(
         'http://api.openweathermap.org/data/2.5/weather?q='+city+'&appid='+OPEN_WEATHER_KEY)
     data = response.json()
-    embed = discord.Embed(title="Weather", color=0x00ff00)
-    embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
+    embed = interactions.Embed(title="Weather", color=0x00ff00)
+    embed.set_author(name=ctx.author.username, icon_url=ctx.author.avatar_url)
     embed.add_field(name="City", value=city, inline=False)
     embed.add_field(name="Temperature", value=str(
         round(data['main']['temp']-273.15))+"°C", inline=False)
@@ -128,10 +186,23 @@ async def weather(ctx=SlashContext, *, city: str):
     await ctx.send(embed=embed)
 
 
-@slash.slash(name="remind_me", description="Remind you about something after a certain time")
+@slash_command(name="remind_me", description="Remind you about something after a certain time")
+@slash_option(
+    name="time",
+    description="The time to remind you",
+    opt_type=OptionType.INTEGER,
+    required=True
+)
+@slash_option(
+    name="message",
+    description="The message to remind you about",
+    opt_type=OptionType.STRING,
+    required=True
+)
 async def remind_me(ctx=SlashContext, *, time: str, message: str):
-    embed = discord.Embed(title="Reminder", color=0x00ff00)
-    embed.set_author(name=ctx.author.name, icon_url=ctx.author.avatar_url)
+    await ctx.defer()
+    embed = interactions.Embed(title="Reminder", color=0x00ff00)
+    embed.set_author(name=ctx.author.username, icon_url=ctx.author.avatar_url)
     embed.add_field(name="Message", value=message, inline=False)
     embed.add_field(name="Time", value=time, inline=False)
     await ctx.send(embed=embed)
@@ -177,11 +248,18 @@ def getStreams(game):
     return res[0]['data']['game']['streams']['edges']
 
 
-@slash.slash(name="drops", description="Check for streams that have drops enabled for a game")
+@slash_command(name="drops", description="Check for streams that have drops enabled for a game")
+@slash_option(
+    name="game",
+    description="The game to get drops for",
+    opt_type=OptionType.STRING,
+    required=True
+)
 async def drops(ctx=SlashContext, *, game: str):
-    embed = discord.Embed(title=game+" streams", color=0x00ff00)
+    embed = interactions.Embed(title=game+" streams", color=0x00ff00)
+    await ctx.defer()
     for stream in getStreams(game):
-        if(stream['node']['broadcaster']):
+        if (stream['node']['broadcaster']):
             embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
                             stream['node']['broadcaster']['login'], inline=False)
     await ctx.send(embed=embed, components=[
@@ -205,74 +283,97 @@ games = {'Fortnite': 1,
          'Overwatch 2': 1,
          'Valorant': 1}
 
-buttons = [
-    create_button(
-        style=ButtonStyle.green,
-        label="Choose again",
-    ),
-    create_button(
-        style=ButtonStyle.red,
-        label="Remove choice and choose again",
-    ),
-]
-action_row = create_actionrow(*buttons)
+
+def create_buttons(choice):
+    buttons = [
+        create_button(
+            style=ButtonStyle.green,
+            label="Choose again",
+            custom_id="choose_again",
+        ),
+        create_button(
+            style=ButtonStyle.red,
+            label="Remove choice and choose again",
+            custom_id="remove_choice_and_choose_again_"+choice),
+    ]
+    return create_actionrow(*buttons)
 
 
-@slash.slash(name="choose", description="Choose a game")
+@slash_command(name="choose", description="Choose a game")
 async def choose(ctx=SlashContext):
     choice = random.choices(
         list(games.keys()), weights=list(games.values()), k=1)[0]
 
-    await ctx.send(embed=discord.Embed(title="I choose "+choice, color=0x00ff00), components=[action_row])
+    await ctx.send(embed=interactions.Embed(title="I choose "+choice, color=0x00ff00), components=[create_buttons(choice)])
 
 
-@ slash.slash(name="games", description="Show list of games")
+@ slash_command(name="games", description="Show list of games")
 async def listgames(ctx=SlashContext):
     global games
     total = sum(games.values())
-    embed = discord.Embed(title="Games", color=0x00ff00)
+    embed = interactions.Embed(title="Games", color=0x00ff00)
     for game in games:
         embed.add_field(name=game, value=games[game], inline=False)
     await ctx.send(embed=embed)
 
 
-@ slash.slash(name="addgame", description="Add new game")
+@ slash_command(name="addgame", description="Add new game")
 async def addgame(ctx=SlashContext, *, game: str, weight: int):
     games[game] = weight
     total = sum(games.values())
-    embed = discord.Embed(title="Games", color=0x00ff00)
+    embed = interactions.Embed(title="Games", color=0x00ff00)
     for game in games:
         embed.add_field(name=game, value=games[game], inline=False)
     await ctx.send(embed=embed)
 
 
-@ slash.slash(name="removegame", description="Remove existing game")
+@ slash_command(name="removegame", description="Remove existing game")
 async def removegame(ctx=SlashContext, *, game: str):
     for g in games:
-        if(g.lower().replace(" ", "") == game.lower().replace(" ", "")):
+        if (g.lower().replace(" ", "") == game.lower().replace(" ", "")):
             del games[g]
             break
     total = sum(games.values())
-    embed = discord.Embed(title="Games", color=0x00ff00)
+    embed = interactions.Embed(title="Games", color=0x00ff00)
     for game in games:
         embed.add_field(name=game, value=games[game], inline=False)
     await ctx.send(embed=embed)
 
 
-@ slash.slash(name="changeweight", description="Change weight for game")
-async def addgame(ctx=SlashContext, *, game: str, weight: int):
+@ slash_command(name="changeweight", description="Change weight for game")
+async def changeweight(ctx=SlashContext, *, game: str, weight: int):
     for g in games:
-        if(g.lower().replace(" ", "") == game.lower().replace(" ", "")):
+        if (g.lower().replace(" ", "") == game.lower().replace(" ", "")):
             games[g] = weight
             break
     total = sum(games.values())
-    embed = discord.Embed(title="Games", color=0x00ff00)
+    embed = interactions.Embed(title="Games", color=0x00ff00)
     for game in games:
         embed.add_field(name=game, value=games[game], inline=False)
     await ctx.send(embed=embed)
 
 
-@ slash.slash(name="rlrank", description="Get ranks for rocket league")
+@listen(Component)
+async def on_component(event: Component):
+    ctx = event.ctx
+    if ctx.custom_id == "choose_again":
+        await choose(ctx)
+    elif "remove_choice_and_choose_again" in ctx.custom_id:
+        choice = ctx.custom_id.split("_")[-1]
+        for g in games:
+            if (g.lower().replace(" ", "") == choice.lower().replace(" ", "")):
+                del games[g]
+                break
+        await choose(ctx)
+
+
+@ slash_command(name="rlrank", description="Get ranks for rocket league")
+@ slash_option(
+    name="epicid",
+    description="The epic id",
+    opt_type=OptionType.STRING,
+    required=True
+)
 async def rlrank(ctx=SlashContext, *, epicid: str):
     # spoof that we are a browser
     data = requests.get(
@@ -296,11 +397,10 @@ async def rlrank(ctx=SlashContext, *, epicid: str):
             "Cookie": os.environ['RL_COOKIE']
         }
     )
-    print(data.text)
     data = data.json()
     ranks = []
     for mode in data['data']['segments']:
-        if(mode['type'] == "playlist"):
+        if (mode['type'] == "playlist"):
             ranks.append([mode['metadata']['name'],
                           mode['stats']['tier']['metadata']['name'],
                           mode['stats']['division']['metadata']['name'],
@@ -308,9 +408,9 @@ async def rlrank(ctx=SlashContext, *, epicid: str):
                           mode['stats']['tier']['metadata']['iconUrl']])
     highest = ranks[0]
     for rank in ranks:
-        if(rank[3] > highest[3]):
+        if (rank[3] > highest[3]):
             highest = rank
-    embed = discord.Embed(title="Ranks for "+epicid, color=0x00ff00)
+    embed = interactions.Embed(title="Ranks for "+epicid, color=0x00ff00)
     for rank in ranks:
         embed.add_field(name=rank[0], value=rank[1]+" "+rank[2], inline=False)
     embed.set_thumbnail(url=highest[4])
@@ -319,9 +419,15 @@ async def rlrank(ctx=SlashContext, *, epicid: str):
 palm.configure(api_key=os.getenv("PALM_API_KEY"))
 
 
-@slash.slash(name="writecode", description="Write code for you")
+@slash_command(name="writecode", description="Write code for you")
+@slash_option(
+    name="message",
+    description="The message to write code for",
+    opt_type=OptionType.STRING,
+    required=True
+)
 async def writecode(ctx=SlashContext, *, message: str):
-    await ctx.send("Hmmm...")
+    await ctx.defer()
     defaults = {
         'model': 'models/chat-bison-001',
         'temperature': 0.25,
@@ -354,8 +460,15 @@ async def writecode(ctx=SlashContext, *, message: str):
     await ctx.send(response.last)
 
 
-@ slash.slash(name="solutionsguy", description="Modify your code")
-async def chat(ctx=SlashContext, *, message: str):
+@slash_command(name="solutionsguy", description="Modify your code")
+@slash_option(
+    name="message",
+    description="The message to modify",
+    opt_type=OptionType.STRING,
+    required=True
+)
+async def solutionsguy(ctx=SlashContext, *, message: str):
+    await ctx.defer()
     defaults = {
         'model': 'models/chat-bison-001',
         'temperature': 0.25,
@@ -363,7 +476,6 @@ async def chat(ctx=SlashContext, *, message: str):
         'top_k': 40,
         'top_p': 0.95,
     }
-    await ctx.send("Hmmm...")
     context = "Rewrite this Python code such that the logic remains the same but the code looks completely different."
     examples = [
         [
@@ -398,7 +510,7 @@ async def chat(ctx=SlashContext, *, message: str):
     await ctx.send(response.last)
 
 
-@ slash.slash(name="atharavsolutions", description="Helps you cheat on your homework")
+@ slash_command(name="atharavsolutions", description="Helps you cheat on your homework")
 async def chat(ctx=SlashContext):
     test = """Attention all computer science students! Are you tired of losing grades and facing academic penalties for copying code? If yes, Atharav Solutions is here to help you.
 
@@ -415,12 +527,19 @@ https://atharav-solutions.onrender.com/
     await ctx.send(test)
 
 
-@ slash.slash(name="githubstats", description="Get github stats")
+@ slash_command(name="githubstats", description="Get github stats")
+@ slash_option(
+    name="username",
+    description="The username to get stats for",
+    opt_type=OptionType.STRING,
+    required=True
+)
 async def githubstats(ctx=SlashContext, *, username: str):
     await ctx.send("Hmmm...")
     data = requests.get("https://api.github.com/users/"+username)
     data = data.json()
-    embed = discord.Embed(title="Github stats for "+username, color=0x00ff00)
+    embed = interactions.Embed(
+        title="Github stats for "+username, color=0x00ff00)
     embed.add_field(name="Followers", value=data['followers'], inline=False)
     embed.add_field(name="Following", value=data['following'], inline=False)
     embed.add_field(name="Public repos",
@@ -433,151 +552,134 @@ async def githubstats(ctx=SlashContext, *, username: str):
     await ctx.send("https://streak-stats.demolab.com/?user="+username+"&theme=radical&type=png")
 
 
-@ slash.slash(name="help", description="View all of the commands")
+@ slash_command(name="help", description="View all of the commands")
 async def help(ctx=SlashContext):
     # dynamically create the embed
-    embed = discord.Embed(title="Help", color=0x00ff00)
-    for command in slash.commands:
-        if(slash.commands[command]):
-            embed.add_field(name="/"+command,
-                            value=slash.commands[command].description, inline=False)
+    embed = interactions.Embed(title="Help", color=0x00ff00)
+    for command in bot.application_commands:
+        embed.add_field(name="/"+str(command.name),
+                        value=str(command.description), inline=False)
     await ctx.send(embed=embed)
 
-@ slash.slash(name="dc", description="Disconnet a user from the voice channel")
+
+@ slash_command(name="dc", description="Disconnet a user from the voice channel")
+@ slash_option(
+    name="user",
+    description="The user to disconnect",
+    opt_type=OptionType.USER,
+    required=True
+)
 async def dc(ctx=SlashContext, *, user: discord.Member):
-    if not ctx.author.guild_permissions.move_members:
+    if not ctx.author.has_permission(interactions.Permissions.MOVE_MEMBERS):
         await ctx.send("You do not have permission to move members")
         return
     try:
-        await user.move_to(None)
+        await user.move(None)
         await ctx.send("Disconnected "+user.mention)
     except Exception as e:
         await ctx.send("Error: "+str(e))
 
-@ slash.slash(name="move", description="Move a user to a voice channel")
-async def move(ctx=SlashContext, *, user: discord.Member, channel: discord.VoiceChannel):
-    if not ctx.author.guild_permissions.move_members:
+
+@ slash_command(name="move", description="Move a user to a voice channel")
+@ slash_option(
+    name="user",
+    description="The user to move",
+    opt_type=OptionType.USER,
+    required=True
+)
+@ slash_option(
+    name="channel",
+    description="The channel to move the user to",
+    opt_type=OptionType.CHANNEL,
+    required=True
+)
+async def move(ctx=SlashContext, *, user: discord.Member, channel: interactions.GuildVoice):
+    if not ctx.author.has_permission(interactions.Permissions.MOVE_MEMBERS):
         await ctx.send("You do not have permission to move members")
         return
     try:
-        await user.move_to(channel)
-        await ctx.send("Moved "+user.mention+" to "+channel.name)
+        await user.move(channel.id)
+        await ctx.send("Moved "+user.mention+" to #"+channel.name)
     except Exception as e:
         await ctx.send("Error: "+str(e))
 
+
 async def move_randomly():
     guild = bot.get_guild(1030766503949254656)
-    channels = guild.voice_channels
+    channels = await guild.fetch_channels()
+    channels = [channel for channel in channels if isinstance(
+        channel, interactions.GuildVoice)]
     # find channel with most members
     max_members = 0
     channel_with_most_members = channels[0]
     for channel in channels:
-        print(channel.name, channel.members)
-        if(len(channel.members) > max_members):
-            max_members = len(channel.members)
+        if (len(channel.voice_members) > max_members):
+            max_members = len(channel.voice_members)
             channel_with_most_members = channel
-    print("Channel with most members: "+channel_with_most_members.name)
-    members = channel_with_most_members.members
-    if(len(members) > 0):
+    members = channel_with_most_members.voice_members
+    if (len(members) > 0):
         # move a random member to a random channel
         channels.remove(channel_with_most_members)
         member = random.choice(members)
         new_channel = random.choice(channels)
-        await member.move_to(new_channel)
+        await member.move(new_channel.id)
         return member, new_channel
     return None, None
 
-@slash.slash(name="random_move", description="Randomly move a user to a voice channel")
+
+@slash_command(name="random_move", description="Randomly move a user to a voice channel")
 async def random_move(ctx=SlashContext):
     # check if user has move permissions
-    if not ctx.author.guild_permissions.move_members:
+    if not ctx.author.has_permission(interactions.Permissions.MOVE_MEMBERS):
         await ctx.send("You do not have permission to move members")
         return
     member, new_channel = await move_randomly()
     if member:
-        await ctx.send("Moved "+member.name+" to "+new_channel.name)
+        await ctx.send("Moved "+member.username+" to "+new_channel.name)
     else:
         await ctx.send("No one to move")
 
-@slash.slash(name="start_auto_move", description="Start moving users randomly every 10 minutes")
+
+@slash_command(name="start_auto_move", description="Start moving users randomly every 10 minutes")
 async def start_auto_move(ctx=SlashContext):
     global auto_move_randomly
     auto_move_randomly.start()
     await ctx.send("Started moving users randomly every 10 minutes")
 
-@slash.slash(name="stop_auto_move", description="Stop moving users randomly every 10 minutes")
+
+@slash_command(name="stop_auto_move", description="Stop moving users randomly every 10 minutes")
 async def stop_auto_move(ctx=SlashContext):
     global auto_move_randomly
     auto_move_randomly.stop()
     await ctx.send("Stopped moving users randomly every 10 minutes")
 
-@ tasks.loop(minutes=10)
+
+@ tasks.loop(minutes=1)
 async def auto_move_randomly():
     # 10% chance of moving a user every 10 minutes
-    if(random.random() < 0.1):
+    if (random.random() < 1):
         member, new_channel = await move_randomly()
         if member:
             print("Moved "+member.name+" to "+new_channel.name)
         else:
             print("No one to move")
 
-Started = False
-isOn = False
 
-
-# @ tasks.loop(minutes=5)
-# async def reminder():
-#     global Started, isOn
-#     print("Reminder", Started, isOn)
-#     streams = getStreams("rocket league")
-#     if(len(streams) > 1 and not Started):
-#         if isOn:
-#             Started = True
-#             channel = bot.get_channel(1006713461474066513)
-#             allowed_mentions = discord.AllowedMentions(everyone=True)
-#             await channel.send(content="@everyone", allowed_mentions=allowed_mentions)
-#             embed = discord.Embed(
-#                 title="Rocket League drops are live!", color=0x00ff00)
-#             for stream in streams:
-#                 if(stream['node']['broadcaster']):
-#                     embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
-#                                     stream['node']['broadcaster']['login'], inline=False)
-#             await channel.send(embed=embed, components=[
-#                 create_actionrow(
-#                     create_button(
-#                         style=ButtonStyle.URL,
-#                         label="Open in browser",
-#                         url="https://www.twitch.tv/directory/game/rocket%20league?tl=DropsEnabled"
-#                     ),
-#                     create_button(
-#                         style=ButtonStyle.blue,
-#                         label="Refresh",
-#                     )
-#                 )
-#             ])
-#         else:
-#             isOn = True
-#     elif(len(streams) == 0):
-#         Started = False
-#         isOn = False
-
-
-@ bot.event
-async def on_message(message):
+@listen()
+async def on_message_create(event):
     mention = str(bot.user.id)
-    if mention in message.content:
-        embed = discord.Embed(
+    if mention in event.message.content:
+        embed = interactions.Embed(
             title="Thank you for using my bot",
-            description="I am a bot created by <@!279174239972491276>",)
-        await message.channel.send(embed=embed)
+            description=f"I am a bot created by {bot.owner}",)
+        await event.message.channel.send(embed=embed)
 
 
-@ bot.event
-async def on_ready():
-    print('client ready')
+@listen()
+async def on_startup():
+    print("Bot is ready!")
     await bot.change_presence(activity=discord.Game(name=f"/help"))
-    # reminder.start()
 
 print("Running bot")
 
-bot.run(TOKEN)
+bot.start(TOKEN)
