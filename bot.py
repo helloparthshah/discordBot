@@ -18,6 +18,7 @@ from interactions.api.events import Component
 from interactions.api.voice.audio import AudioVolume, Audio
 from pytube import YouTube
 import os
+from youtube_search import YoutubeSearch
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -115,7 +116,17 @@ async def autocomplete(ctx: AutocompleteContext):
 @slash_command(name="record", description="record some audio")
 async def record(ctx: interactions.SlashContext):
     await ctx.defer()
-    voice_state = await ctx.author.voice.channel.connect()
+    if not ctx.author.voice:
+        return await ctx.send('Join a channel first')
+    
+    # check if ctx server is same as voice server
+    if ctx.guild_id != ctx.author.voice.channel.guild.id:
+        return await ctx.send("I am not in the same server as you")
+
+    if not ctx.voice_state:
+        voice_state = await ctx.author.voice.channel.connect()
+    else:
+        await ctx.voice_state.move(ctx.author.voice.channel)
 
     # Start recording
     await voice_state.start_recording()
@@ -129,7 +140,8 @@ async def record(ctx: interactions.SlashContext):
     name="link",
     description="The song to play",
     required=True,
-    opt_type=OptionType.STRING
+    opt_type=OptionType.STRING,
+    autocomplete=True
 )
 async def play(ctx: SlashContext, *, link: str):
     await ctx.defer()
@@ -148,6 +160,21 @@ async def play(ctx: SlashContext, *, link: str):
     # Play the audio
     await ctx.voice_state.play(audio)
 
+@play.autocomplete("link")
+async def autocomplete(ctx: AutocompleteContext):
+    string_option_input = ctx.input_text 
+    if not string_option_input or len(string_option_input) < 3:
+        return
+    results = YoutubeSearch(string_option_input, max_results=5).to_dict()
+    choices = []
+    for result in results:
+        choices.append({
+            "name": result['title'],
+            "value": 'https://www.youtube.com'+result['url_suffix']
+        })
+    await ctx.send(
+        choices=choices
+    )
 
 @slash_command(name="stop", description="Stop the audio")
 async def stop(ctx=SlashContext):
