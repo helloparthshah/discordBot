@@ -126,7 +126,7 @@ async def record(ctx: interactions.SlashContext):
     if not ctx.voice_state:
         voice_state = await ctx.author.voice.channel.connect()
     else:
-        await ctx.voice_state.move(ctx.author.voice.channel)
+        voice_state = await ctx.voice_state.move(ctx.author.voice.channel)
 
     # Start recording
     await voice_state.start_recording()
