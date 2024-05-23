@@ -124,14 +124,14 @@ async def record(ctx: interactions.SlashContext):
         return await ctx.send("I am not in the same server as you")
 
     if not ctx.voice_state:
-        voice_state = await ctx.author.voice.channel.connect()
+        await ctx.author.voice.channel.connect()
     else:
-        voice_state = await ctx.voice_state.move(ctx.author.voice.channel)
+        await ctx.voice_state.move(ctx.author.voice.channel)
 
     # Start recording
-    await voice_state.start_recording()
+    await ctx.voice_state.start_recording()
     await asyncio.sleep(10)
-    await voice_state.stop_recording()
+    await ctx.voice_state.stop_recording()
     await ctx.send(files=[interactions.File(file, file_name="user_id.mp3") for user_id, file in voice_state.recorder.output.items()])
 
 
