@@ -132,7 +132,7 @@ async def record(ctx: interactions.SlashContext):
     await ctx.voice_state.start_recording()
     await asyncio.sleep(10)
     await ctx.voice_state.stop_recording()
-    await ctx.send(files=[interactions.File(file, file_name="user_id.mp3") for user_id, file in voice_state.recorder.output.items()])
+    await ctx.send(files=[interactions.File(file, file_name="user_id.mp3") for user_id, file in ctx.voice_state.recorder.output.items()])
 
 
 @slash_command(name="play", description="play a song!")
