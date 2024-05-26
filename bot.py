@@ -396,8 +396,8 @@ async def drops(ctx=SlashContext, *, game: str):
     ])
 
 games = {'Fortnite': 1,
-         'Rocket League': 1,
          'Overwatch 2': 1,
+         'XDefiant': 1,
          'Valorant': 1}
 
 
@@ -435,6 +435,18 @@ async def listgames(ctx=SlashContext):
 
 
 @ slash_command(name="addgame", description="Add new game")
+@ slash_option(
+    name="game",
+    description="The game to add",
+    opt_type=OptionType.STRING,
+    required=True
+)
+@ slash_option(
+    name="weight",
+    description="The weight of the game",
+    opt_type=OptionType.INTEGER,
+    required=True
+)
 async def addgame(ctx=SlashContext, *, game: str, weight: int):
     games[game] = weight
     total = sum(games.values())
@@ -445,6 +457,12 @@ async def addgame(ctx=SlashContext, *, game: str, weight: int):
 
 
 @ slash_command(name="removegame", description="Remove existing game")
+@ slash_option(
+    name="game",
+    description="The game to remove",
+    opt_type=OptionType.STRING,
+    required=True
+)
 async def removegame(ctx=SlashContext, *, game: str):
     for g in games:
         if (g.lower().replace(" ", "") == game.lower().replace(" ", "")):
@@ -458,6 +476,18 @@ async def removegame(ctx=SlashContext, *, game: str):
 
 
 @ slash_command(name="changeweight", description="Change weight for game")
+@ slash_option(
+    name="game",
+    description="The game to change weight for",
+    opt_type=OptionType.STRING,
+    required=True
+)
+@ slash_option(
+    name="weight",
+    description="The new weight of the game",
+    opt_type=OptionType.INTEGER,
+    required=True
+)
 async def changeweight(ctx=SlashContext, *, game: str, weight: int):
     for g in games:
         if (g.lower().replace(" ", "") == game.lower().replace(" ", "")):
