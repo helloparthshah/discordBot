@@ -185,8 +185,11 @@ async def stop(ctx=SlashContext):
     await ctx.send('Stopped the audio')
 
 @slash_command(name="dancing_ujju", description="Dancing Ujju")
-async def dancing_ujju(ctx=SlashContext):
-    await ctx.send(file=interactions.File('assets/ujju.mp4'))
+async def dancing_ujju(ctx: SlashContext):
+    # Create an embed with an engaging title and description
+    embed = Embed(title="Dancing Ujju", description="Click to watch Ujju dance! 🕺", color=0x00ff00)
+    # Send the file with the embed
+    await ctx.send(embed=embed, file=interactions.File("assets/ujju.mp4"))
 
 @slash_command(name="pause", description="Pause the audio")
 async def pause(ctx=SlashContext):
