@@ -34,6 +34,12 @@ cloned_voices = []
 
 
 @slash_command(name="yo_mama", description="Yo mama")
+@slash_option(
+    name="user",
+    description="The user to send the joke to",
+    opt_type=OptionType.USER,
+    required=True
+)
 async def yo_mama(ctx=SlashContext, *, user: discord.Member):
     await ctx.defer()
     # send a get request to https://api.yomomma.info/
