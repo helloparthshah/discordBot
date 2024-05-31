@@ -190,6 +190,10 @@ async def stop(ctx=SlashContext):
     await ctx.voice_state.stop()
     await ctx.send('Stopped the audio')
 
+@slash_command(name="dancing_ujju", description="Dancing Ujju")
+async def dancing_ujju(ctx=SlashContext):
+    # send file and automatically play the video
+    await ctx.send(file=interactions.File('assets/ujju.mp4'))
 
 @slash_command(name="pause", description="Pause the audio")
 async def pause(ctx=SlashContext):
