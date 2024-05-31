@@ -171,7 +171,7 @@ async def play(ctx: SlashContext, *, link: str):
 async def autocomplete(ctx: AutocompleteContext):
     string_option_input = ctx.input_text 
     if not string_option_input or len(string_option_input) < 3:
-        return
+        return await ctx.send(choices=[])
     results = YoutubeSearch(string_option_input, max_results=5).to_dict()
     choices = []
     for result in results:
