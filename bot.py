@@ -42,12 +42,12 @@ cloned_voices = []
 )
 async def yo_mama(ctx=SlashContext, *, user: discord.Member):
     await ctx.defer()
-    # send a get request to https://api.yomomma.info/
     # read the response and send it as a message
-    response = requests.get('https://api.yomomma.info/')
+    response = requests.get('https://www.yomama-jokes.com/api/v1/jokes/random/')
     data = response.json()
+    print(data)
     await ctx.send(user.mention)
-    await ctx.send(embed=discord.Embed(
+    await ctx.send(embed=interactions.Embed(
         title=data['joke'], color=0x00ff00))
 
 
