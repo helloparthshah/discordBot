@@ -91,9 +91,9 @@ async def tts(ctx=SlashContext, *, text: str, voice: str = "s3://voice-cloning-z
             f.write(response.content)
         audio = AudioVolume('tts.mp3')
         await ctx.send(file=interactions.File('tts.mp3'))
-        if ctx.guild_id == ctx.author.voice.channel.guild.id:
-            if (not ctx.author.voice):
+        if (not ctx.author.voice):
                 return
+        if ctx.guild_id == ctx.author.voice.channel.guild.id:
             if not ctx.voice_state:
                 await ctx.author.voice.channel.connect()
             else:
