@@ -82,12 +82,6 @@ async def tts(ctx=SlashContext, *, text: str, voice: str = "s3://voice-cloning-z
     }
     print("Connecting to voice channel")
     # if not joined a voice channel, join the user's voice channel
-    if (not ctx.author.voice):
-        return await ctx.channel.send('Join a channel first')
-    if not ctx.voice_state:
-        await ctx.author.voice.channel.connect()
-    else:
-        await ctx.voice_state.move(ctx.author.voice.channel)
 
     print("Sending request")
     response = requests.post(url, json=payload, headers=headers)
@@ -97,7 +91,14 @@ async def tts(ctx=SlashContext, *, text: str, voice: str = "s3://voice-cloning-z
             f.write(response.content)
         audio = AudioVolume('tts.mp3')
         await ctx.send(file=interactions.File('tts.mp3'))
-        await ctx.voice_state.play(audio)
+        if ctx.guild_id == ctx.author.voice.channel.guild.id:
+            if (not ctx.author.voice):
+                return
+            if not ctx.voice_state:
+                await ctx.author.voice.channel.connect()
+            else:
+                await ctx.voice_state.move(ctx.author.voice.channel)
+            await ctx.voice_state.play(audio)
     else:
         await ctx.send("Error: "+str(response.status_code))
 
