@@ -254,7 +254,7 @@ async def play_file(ctx=SlashContext, *, file: discord.Attachment):
 @slash_option(
     name="user",
     description="The user to send the PSA to",
-    opt_type=OptionType.USER,
+    opt_type=OptionType.MENTIONABLE,
     required=True
 )
 async def porn(ctx=SlashContext, *, user: discord.Member):
