@@ -34,6 +34,13 @@ cloned_voices = []
 
 music_queue = {}
 
+
+class MusicQueueSong:
+    def __init__(self, url):
+        self.url = url
+        self.yt = YouTube(url)
+
+
 @slash_command(name="yo_mama", description="Yo mama")
 @slash_option(
     name="user",
@@ -123,7 +130,13 @@ async def autocomplete(ctx: AutocompleteContext):
 
 
 @slash_command(name="record", description="record some audio")
-async def record(ctx: interactions.SlashContext):
+@slash_option(
+    name="time",
+    description="time in seconds to record",
+    opt_type=OptionType.INTEGER,
+    required=False
+)
+async def record(ctx: interactions.SlashContext, time: int = 10):
     await ctx.defer()
     if not ctx.author.voice:
         return await ctx.send('Join a channel first')
@@ -139,7 +152,7 @@ async def record(ctx: interactions.SlashContext):
 
     # Start recording
     await ctx.voice_state.start_recording()
-    await asyncio.sleep(10)
+    await asyncio.sleep(time)
     await ctx.voice_state.stop_recording()
     await ctx.send(files=[interactions.File(file, file_name=f"{ctx.guild.get_member(user_id).nick}.mp3"
                                             ) for user_id, file in ctx.voice_state.recorder.output.items()])
@@ -157,8 +170,26 @@ async def play(ctx: SlashContext, *, link: str):
     await ctx.defer()
     if not ctx.voice_state:
         await ctx.author.voice.channel.connect()
+    
+    # check if link is a youtube link
+    if "youtube.com" not in link:
+        link = search_youtube(link)[0]['url_suffix']
 
-    yt = YouTube(link)
+    music_queue[ctx.guild_id] = music_queue.get(ctx.guild_id, [])
+    music_queue[ctx.guild_id].append(MusicQueueSong(link))
+
+    # add to queue if already playing
+    if ctx.voice_state.playing:
+        return await ctx.send(f"Added {link} to the queue")
+
+    await play_next(ctx)
+
+
+async def play_next(ctx: SlashContext):
+    current_song = music_queue[ctx.guild_id].pop(0)
+
+    # yt = YouTube(current_song)
+    yt = current_song.yt
 
     # extract only audio
     video = yt.streams.filter(only_audio=True).first()
@@ -166,9 +197,49 @@ async def play(ctx: SlashContext, *, link: str):
 
     # Get the audio using YTDL
     audio = AudioVolume(out_file)
-    await ctx.send(f"Now Playing: **{link}**")
-    # Play the audio
+    # create a player using embed
+    embed = interactions.Embed(title="Now Playing", color=0x00ff00)
+    embed.add_field(name="Title", value=yt.title, inline=False)
+    embed.add_field(name="Duration", value=yt.length, inline=False)
+    embed.set_thumbnail(url=yt.thumbnail_url)
+    # add buttons to skip, pause, resume, stop
+    await ctx.send(embed=embed, components=[
+        create_actionrow(
+            create_button(
+                style=ButtonStyle.grey,
+                emoji="⏸",
+                custom_id="pause"
+            ),
+            create_button(
+                style=ButtonStyle.grey,
+                emoji="⏹",
+                custom_id="stop"
+            ),
+            create_button(
+                style=ButtonStyle.grey,
+                emoji="⏭",
+                custom_id="skip"
+            ),
+        )
+    ])
+
     await ctx.voice_state.play(audio)
+    if len(music_queue[ctx.guild_id]) > 0:
+        await play_next(ctx)
+
+
+@slash_command(name="skip", description="Skip the current song")
+async def skip(ctx: SlashContext):
+    await ctx.send("Skipping the current song")
+    await skip_current(ctx)
+
+
+async def skip_current(ctx: SlashContext):
+    if not ctx.voice_state:
+        return await ctx.send('Not connected to any voice channel')
+    if len(music_queue[ctx.guild_id]) == 0:
+        return await ctx.send('No songs in queue')
+    await ctx.voice_state.stop()
 
 
 @play.autocomplete("link")
@@ -176,7 +247,7 @@ async def autocomplete(ctx: AutocompleteContext):
     string_option_input = ctx.input_text
     if not string_option_input or len(string_option_input) < 3:
         return await ctx.send(choices=[])
-    results = YoutubeSearch(string_option_input, max_results=5).to_dict()
+    results = search_youtube(string_option_input)
     choices = []
     for result in results:
         choices.append({
@@ -188,12 +259,34 @@ async def autocomplete(ctx: AutocompleteContext):
     )
 
 
+def search_youtube(query):
+    return YoutubeSearch(query, max_results=5).to_dict()
+
+
+@slash_command(name="queue", description="Show the current queue")
+async def queue(ctx: SlashContext):
+    if len(music_queue[ctx.guild_id]) == 0:
+        return await ctx.send('No songs in queue')
+    # create an embed with the current queue
+    embed = interactions.Embed(title="Queue", color=0x00ff00)
+    for i, song in enumerate(music_queue[ctx.guild_id]):
+        embed.add_field(name=f"{i+1}. {song.yt.title}",
+                        value=song.yt.length, inline=False)
+    await ctx.send(embed=embed)
+
+
 @slash_command(name="stop", description="Stop the audio")
 async def stop(ctx=SlashContext):
     await ctx.defer()
+    await stop_audio(ctx)
+
+
+async def stop_audio(ctx: SlashContext):
     if not ctx.voice_state:
         return await ctx.send('Not connected to any voice channel')
     await ctx.voice_state.stop()
+    # clear the queue
+    music_queue[ctx.guild_id] = []
     await ctx.send('Stopped the audio')
 
 
@@ -206,19 +299,27 @@ async def dancing_ujju(ctx=SlashContext):
 @slash_command(name="pause", description="Pause the audio")
 async def pause(ctx=SlashContext):
     await ctx.defer()
+    await pause_audio(ctx)
+    await ctx.send('Paused the audio')
+
+
+async def pause_audio(ctx: SlashContext):
     if not ctx.voice_state:
         return await ctx.send('Not connected to any voice channel')
     ctx.voice_state.pause()
-    await ctx.send('Paused the audio')
 
 
 @slash_command(name="resume", description="Resume the audio")
 async def resume(ctx=SlashContext):
     await ctx.defer()
+    await resume_audio(ctx)
+    await ctx.send('Resumed the audio')
+
+
+async def resume_audio(ctx: SlashContext):
     if not ctx.voice_state:
         return await ctx.send('Not connected to any voice channel')
     ctx.voice_state.resume()
-    await ctx.send('Resumed the audio')
 
 
 @slash_command(name="volume", description="Change the volume")
@@ -530,6 +631,53 @@ async def on_component(event: Component):
                 del games[g]
                 break
         await choose(ctx)
+    elif ctx.custom_id == "pause":
+        # change icon and label to resume
+        await pause_audio(ctx)
+        await ctx.edit_origin(components=[
+            create_actionrow(
+                create_button(
+                    style=ButtonStyle.green,
+                    emoji="▶️",
+                    custom_id="resume"
+                ),
+                create_button(
+                    style=ButtonStyle.grey,
+                    emoji="⏹",
+                    custom_id="stop"
+                ),
+                create_button(
+                    style=ButtonStyle.grey,
+                    emoji="⏭",
+                    custom_id="skip"
+                ),
+            )
+        ])
+    elif ctx.custom_id == "resume":
+        await resume_audio(ctx)
+        await ctx.edit_origin(components=[
+            create_actionrow(
+                create_button(
+                    style=ButtonStyle.grey,
+                    emoji="⏸",
+                    custom_id="pause"
+                ),
+                create_button(
+                    style=ButtonStyle.grey,
+                    emoji="⏹",
+                    custom_id="stop"
+                ),
+                create_button(
+                    style=ButtonStyle.grey,
+                    emoji="⏭",
+                    custom_id="skip"
+                ),
+            )
+        ])
+    elif ctx.custom_id == "stop":
+        return await stop_audio(ctx)
+    elif ctx.custom_id == "skip":
+        return await skip_current(ctx)
 
 
 @ slash_command(name="rlrank", description="Get ranks for rocket league")
