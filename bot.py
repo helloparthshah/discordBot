@@ -968,6 +968,17 @@ async def stop_auto_move(ctx=SlashContext):
     auto_move_randomly.stop()
     await ctx.send("Stopped moving users randomly every 10 minutes")
 
+@slash_command(name="mention_roles", description="Mention all for a user")
+@slash_option(
+    name="user",
+    description="The user to mention",
+    opt_type=OptionType.USER,
+    required=True
+)
+async def mention_roles(ctx=SlashContext, *, user: discord.Member):
+    roles = user.roles
+    roles = [role.mention for role in roles]
+    await ctx.send(" ".join(roles))
 
 @ tasks.loop(minutes=1)
 async def auto_move_randomly():
