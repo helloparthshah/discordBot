@@ -43,7 +43,8 @@ cloned_voices = []
 async def yo_mama(ctx=SlashContext, *, user: discord.Member):
     await ctx.defer()
     # read the response and send it as a message
-    response = requests.get('https://www.yomama-jokes.com/api/v1/jokes/random/')
+    response = requests.get(
+        'https://www.yomama-jokes.com/api/v1/jokes/random/')
     data = response.json()
     print(data)
     await ctx.send(user.mention)
@@ -92,7 +93,7 @@ async def tts(ctx=SlashContext, *, text: str, voice: str = "s3://voice-cloning-z
         audio = AudioVolume('tts.mp3')
         await ctx.send(file=interactions.File('tts.mp3'))
         if (not ctx.author.voice):
-                return
+            return
         if ctx.guild_id == ctx.author.voice.channel.guild.id:
             if not ctx.voice_state:
                 await ctx.author.voice.channel.connect()
@@ -125,7 +126,7 @@ async def record(ctx: interactions.SlashContext):
     await ctx.defer()
     if not ctx.author.voice:
         return await ctx.send('Join a channel first')
-    
+
     # check if ctx server is same as voice server
     if ctx.guild_id != ctx.author.voice.channel.guild.id:
         return await ctx.send("I am not in the same server as you")
@@ -139,7 +140,8 @@ async def record(ctx: interactions.SlashContext):
     await ctx.voice_state.start_recording()
     await asyncio.sleep(10)
     await ctx.voice_state.stop_recording()
-    await ctx.send(files=[interactions.File(file, file_name="user_id.mp3") for user_id, file in ctx.voice_state.recorder.output.items()])
+    await ctx.send(files=[interactions.File(file, file_name=f"{ctx.guild.get_member(user_id).name}.mp3"
+                                            ) for user_id, file in ctx.voice_state.recorder.output.items()])
 
 
 @slash_command(name="play", description="play a song!")
@@ -167,9 +169,10 @@ async def play(ctx: SlashContext, *, link: str):
     # Play the audio
     await ctx.voice_state.play(audio)
 
+
 @play.autocomplete("link")
 async def autocomplete(ctx: AutocompleteContext):
-    string_option_input = ctx.input_text 
+    string_option_input = ctx.input_text
     if not string_option_input or len(string_option_input) < 3:
         return await ctx.send(choices=[])
     results = YoutubeSearch(string_option_input, max_results=5).to_dict()
@@ -183,6 +186,7 @@ async def autocomplete(ctx: AutocompleteContext):
         choices=choices
     )
 
+
 @slash_command(name="stop", description="Stop the audio")
 async def stop(ctx=SlashContext):
     await ctx.defer()
@@ -191,10 +195,12 @@ async def stop(ctx=SlashContext):
     await ctx.voice_state.stop()
     await ctx.send('Stopped the audio')
 
+
 @slash_command(name="dancing_ujju", description="Dancing Ujju")
 async def dancing_ujju(ctx=SlashContext):
     # send file and automatically play the video
     await ctx.send(file=interactions.File('assets/ujju.mp4'))
+
 
 @slash_command(name="pause", description="Pause the audio")
 async def pause(ctx=SlashContext):
