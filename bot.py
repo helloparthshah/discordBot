@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 from io import BytesIO
 import random
-from PIL import Image
 from interactions import Intents, OptionType, listen, slash_command, slash_option
 import interactions
 import requests
@@ -19,6 +18,8 @@ from interactions.api.voice.audio import AudioVolume, Audio
 from pytube import YouTube
 import os
 from youtube_search import YoutubeSearch
+from PIL import Image, ImageFont, ImageDraw
+import textwrap
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -170,7 +171,7 @@ async def play(ctx: SlashContext, *, link: str):
     await ctx.defer()
     if not ctx.voice_state:
         await ctx.author.voice.channel.connect()
-    
+
     # check if link is a youtube link
     if "youtube.com" not in link:
         link = search_youtube(link)[0]['url_suffix']
@@ -968,6 +969,7 @@ async def stop_auto_move(ctx=SlashContext):
     auto_move_randomly.stop()
     await ctx.send("Stopped moving users randomly every 10 minutes")
 
+
 @slash_command(name="mention_roles", description="Mention all for a user")
 @slash_option(
     name="user",
@@ -979,6 +981,48 @@ async def mention_roles(ctx=SlashContext, *, user: discord.Member):
     roles = user.roles
     roles = [role.mention for role in roles]
     await ctx.send(" ".join(roles))
+
+
+@slash_command(name="generate_meme", description="Generate a meme using a image and text")
+@slash_option(
+    name="image",
+    description="The image to use for the meme",
+    opt_type=OptionType.ATTACHMENT,
+    required=True
+)
+@slash_option(
+    name="text",
+    description="The text to use for the meme",
+    opt_type=OptionType.STRING,
+    required=True
+)
+async def generate_meme(ctx=SlashContext, *, image: discord.Attachment, text: str):
+    await ctx.defer()
+    image_extension = image.filename.split(".")[-1]
+
+    lines = textwrap.wrap(text, 30)
+    text = "\n".join(lines)
+
+    img = Image.open(requests.get(image.url, stream=True).raw)
+
+    box = ((20, 20, img.width-20, img.height-20))
+
+    draw = ImageDraw.Draw(img)
+
+    font_size = 500
+    size = None
+    draw_test = ImageDraw.Draw(img)
+    while (size is None or size[0] > box[2] - box[0] or size[1] > box[3] - box[1]) and font_size > 0:
+        font = ImageFont.load_default(size=font_size)
+        left, top, right, bottom = draw_test.multiline_textbbox(
+            (0, 0), text, font)
+        size = [right - left, bottom - top]
+        font_size -= 1
+    draw.multiline_text((box[0], box[1]), text, "white", font)
+
+    img.save('temp.'+image_extension)
+    await ctx.send(file='temp.'+image_extension)
+
 
 @ tasks.loop(minutes=1)
 async def auto_move_randomly():
