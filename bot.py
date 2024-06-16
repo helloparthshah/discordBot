@@ -224,6 +224,8 @@ async def play_next(ctx: SlashContext):
     ])
 
     await ctx.voice_state.play(audio)
+    # delete the file
+    os.remove(out_file)
     if len(music_queue[ctx.guild_id]) > 0:
         await play_next(ctx)
 
