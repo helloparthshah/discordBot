@@ -32,6 +32,7 @@ bot = interactions.Client()
 
 cloned_voices = []
 
+music_queue = {}
 
 @slash_command(name="yo_mama", description="Yo mama")
 @slash_option(
@@ -140,7 +141,7 @@ async def record(ctx: interactions.SlashContext):
     await ctx.voice_state.start_recording()
     await asyncio.sleep(10)
     await ctx.voice_state.stop_recording()
-    await ctx.send(files=[interactions.File(file, file_name=f"{ctx.guild.get_member(user_id).name}.mp3"
+    await ctx.send(files=[interactions.File(file, file_name=f"{ctx.guild.get_member(user_id).nick}.mp3"
                                             ) for user_id, file in ctx.voice_state.recorder.output.items()])
 
 
