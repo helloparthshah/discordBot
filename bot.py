@@ -18,7 +18,7 @@ from interactions.api.voice.audio import AudioVolume, Audio
 from pytube import YouTube
 import os
 from youtube_search import YoutubeSearch
-from PIL import Image, ImageFont, ImageDraw
+from PIL import Image, ImageFont, ImageDraw, ImageOps
 import textwrap
 
 load_dotenv()
@@ -998,16 +998,12 @@ async def mention_roles(ctx=SlashContext, *, user: discord.Member):
 )
 async def generate_meme(ctx=SlashContext, *, image: discord.Attachment, text: str):
     await ctx.defer()
-    image_extension = image.filename.split(".")[-1]
-
     lines = textwrap.wrap(text, 30)
     text = "\n".join(lines)
 
     img = Image.open(requests.get(image.url, stream=True).raw)
 
-    box = ((20, 20, img.width-20, img.height-20))
-
-    draw = ImageDraw.Draw(img)
+    box = ((0, 0, img.width, int(0.25*img.height)))
 
     font_size = 500
     size = None
@@ -1018,10 +1014,18 @@ async def generate_meme(ctx=SlashContext, *, image: discord.Attachment, text: st
             (0, 0), text, font)
         size = [right - left, bottom - top]
         font_size -= 1
-    draw.multiline_text((box[0], box[1]), text, "white", font)
 
-    img.save('temp.'+image_extension)
-    await ctx.send(file='temp.'+image_extension)
+    new_size = (img.width, int(1.25*img.height))
+
+    new = Image.new('RGBA', new_size, (0, 0, 0, 0))
+    new.paste(img, (0, int(0.25*img.height)))
+    draw_new = ImageDraw.Draw(new)
+    draw_new.rectangle(box, fill=(255, 255, 255))
+
+    draw_new.multiline_text((box[0], box[1]), text, "black", font)
+
+    new.save('temp.png')
+    await ctx.send(file='temp.png')
 
 
 @ tasks.loop(minutes=1)
