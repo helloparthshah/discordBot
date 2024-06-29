@@ -773,7 +773,12 @@ async def writecode(ctx=SlashContext, *, message: str):
         examples=examples,
         messages=messages
     )
-    await ctx.send(response.last)
+    # split it out into chunks of 2000 characters and send them
+    output = response.last
+    while len(output) > 2000:
+        await ctx.send(output[:2000])
+        output = output[2000:]
+    await ctx.send(output)
 
 
 @slash_command(name="solutionsguy", description="Modify your code")
