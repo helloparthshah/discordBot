@@ -1,5 +1,5 @@
 discord.py==1.7.3
-discord_py_interactions==5.12.1
+discord_py_interactions==5.13.1
 discord_py_slash_command==3.0.3
 Pillow==10.3.0
 python-dotenv==1.0.1
