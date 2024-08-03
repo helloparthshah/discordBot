@@ -3,7 +3,7 @@ discord_py_interactions==5.12.1
 discord_py_slash_command==3.0.3
 Pillow==10.3.0
 python-dotenv==1.0.1
-pytube==15.0.0
+pytube @ git+https://github.com/an-dutra/pytube.git
 Requests==2.31.0
 google-generativeai
 discord.py-interactions[voice]
