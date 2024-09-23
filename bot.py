@@ -701,6 +701,8 @@ async def playUrl(ctx, id):
     sound = soundboardCollection.find_one({"_id": id})
     url = sound['sound']
     print("Playing sound "+sound['name'])
+    if not os.path.exists("sounds"):
+        os.makedirs("sounds")
     # check if file exists in cache (/sounds folder)
     if not os.path.exists("sounds/"+id+".mp3"):
         content = requests.get(url).content
