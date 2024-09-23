@@ -49,7 +49,7 @@ soundboardCollection = database["soundboard"]
 class MusicQueueSong:
     def __init__(self, url):
         self.url = url
-        self.yt = YouTube(url)
+        self.yt = YouTube(url, use_po_token=True)
 
 
 @slash_command(name="yo_mama", description="Yo mama")
