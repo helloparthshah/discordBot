@@ -9,17 +9,20 @@ import discord
 from dotenv import load_dotenv
 import asyncio
 from discord.ext import tasks
-from discord_slash.utils.manage_components import create_button, create_actionrow
-from discord_slash.model import ButtonStyle
+from interactions import Button, ButtonStyle, ActionRow
 import google.generativeai as palm
 from interactions import AutocompleteContext, SlashContext, Embed
 from interactions.api.events import Component
 from interactions.api.voice.audio import AudioVolume, Audio
-from pytube import YouTube
+from pytubefix import YouTube
 import os
 from youtube_search import YoutubeSearch
 from PIL import Image, ImageFont, ImageDraw, ImageOps
 import textwrap
+from pymongo.mongo_client import MongoClient
+from pymongo.server_api import ServerApi
+import traceback
+from interactions.api.events import CommandError
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -28,12 +31,19 @@ OPEN_WEATHER_KEY = os.getenv('OPEN_WEATHER_KEY')
 PALM_API_KEY = os.getenv('PALM_API_KEY')
 PLAY_HT_KEY = os.getenv('PLAY_HT_KEY')
 PLAY_HT_APP_ID = os.getenv('PLAY_HT_APP_ID')
+MONGODB_DB_URL = os.getenv('MONGODB_DB_URL')
 
 bot = interactions.Client()
 
 cloned_voices = []
 
 music_queue = {}
+
+MongoDbClient = MongoClient(MONGODB_DB_URL, server_api=ServerApi('1'))
+
+database = MongoDbClient["discord-bot"]
+
+soundboardCollection = database["soundboard"]
 
 
 class MusicQueueSong:
@@ -205,19 +215,19 @@ async def play_next(ctx: SlashContext):
     embed.set_thumbnail(url=yt.thumbnail_url)
     # add buttons to skip, pause, resume, stop
     await ctx.send(embed=embed, components=[
-        create_actionrow(
-            create_button(
-                style=ButtonStyle.grey,
+        ActionRow(
+            Button(
+                style=ButtonStyle.GREY,
                 emoji="⏸",
                 custom_id="pause"
             ),
-            create_button(
-                style=ButtonStyle.grey,
+            Button(
+                style=ButtonStyle.GREY,
                 emoji="⏹",
                 custom_id="stop"
             ),
-            create_button(
-                style=ButtonStyle.grey,
+            Button(
+                style=ButtonStyle.GREY,
                 emoji="⏭",
                 custom_id="skip"
             ),
@@ -502,15 +512,15 @@ async def drops(ctx=SlashContext, *, game: str):
             embed.add_field(name=stream['node']['title'], value="https://www.twitch.tv/" +
                             stream['node']['broadcaster']['login'], inline=False)
     await ctx.send(embed=embed, components=[
-        create_actionrow(
-            create_button(
+        ActionRow(
+            Button(
                 style=ButtonStyle.URL,
                 label="Open in browser",
                 url="https://www.twitch.tv/directory/game/" +
                     game.replace(" ", "%20") +
                 "?tl=DropsEnabled"
             ),
-            create_button(
+            Button(
                 style=ButtonStyle.blue,
                 label="Refresh",
             )
@@ -525,17 +535,17 @@ games = {'Fortnite': 1,
 
 def create_buttons(choice):
     buttons = [
-        create_button(
+        Button(
             style=ButtonStyle.green,
             label="Choose again",
             custom_id="choose_again",
         ),
-        create_button(
+        Button(
             style=ButtonStyle.red,
             label="Remove choice and choose again",
             custom_id="remove_choice_and_choose_again_"+choice),
     ]
-    return create_actionrow(*buttons)
+    return ActionRow(*buttons)
 
 
 @slash_command(name="choose", description="Choose a game")
@@ -638,18 +648,18 @@ async def on_component(event: Component):
         # change icon and label to resume
         await pause_audio(ctx)
         await ctx.edit_origin(components=[
-            create_actionrow(
-                create_button(
+            ActionRow(
+                Button(
                     style=ButtonStyle.green,
                     emoji="▶️",
                     custom_id="resume"
                 ),
-                create_button(
+                Button(
                     style=ButtonStyle.grey,
                     emoji="⏹",
                     custom_id="stop"
                 ),
-                create_button(
+                Button(
                     style=ButtonStyle.grey,
                     emoji="⏭",
                     custom_id="skip"
@@ -659,18 +669,18 @@ async def on_component(event: Component):
     elif ctx.custom_id == "resume":
         await resume_audio(ctx)
         await ctx.edit_origin(components=[
-            create_actionrow(
-                create_button(
+            ActionRow(
+                Button(
                     style=ButtonStyle.grey,
                     emoji="⏸",
                     custom_id="pause"
                 ),
-                create_button(
+                Button(
                     style=ButtonStyle.grey,
                     emoji="⏹",
                     custom_id="stop"
                 ),
-                create_button(
+                Button(
                     style=ButtonStyle.grey,
                     emoji="⏭",
                     custom_id="skip"
@@ -681,6 +691,23 @@ async def on_component(event: Component):
         return await stop_audio(ctx)
     elif ctx.custom_id == "skip":
         return await skip_current(ctx)
+    elif ctx.custom_id.startswith("soundboard_sound_"):
+        id = ctx.custom_id.replace("soundboard_sound_", "")
+        sound = soundboardCollection.find_one({"_id": id})
+        print("Playing sound "+sound['name'])
+        await ctx.defer()
+        await playUrl(ctx, sound['sound'])
+        await ctx.send("Playing "+sound['name'])
+
+
+async def playUrl(ctx, url):
+    # join the voice channel and play the audio
+    if not ctx.voice_state:
+        await ctx.author.voice.channel.connect()
+    else:
+        await ctx.voice_state.move(ctx.author.voice.channel)
+    audio = AudioVolume(url)
+    await ctx.voice_state.play(audio)
 
 
 @ slash_command(name="rlrank", description="Get ranks for rocket league")
@@ -1031,6 +1058,93 @@ async def generate_meme(ctx=SlashContext, *, image: discord.Attachment, text: st
 
     new.save('temp.png')
     await ctx.send(file='temp.png')
+
+
+def saveSoundLocally(name, url):
+    if not os.path.exists("sounds"):
+        os.makedirs("sounds")
+    print("Saving sound "+name, url)
+    res = requests.get(url)
+    with open("sounds/"+name, "wb") as f:
+        f.write(res.content)
+
+
+@slash_command(name="add_sound", description="Add a sound to the soundboard")
+@slash_option(
+    name="name",
+    description="The name of the sound",
+    opt_type=OptionType.STRING,
+    required=True
+)
+@slash_option(
+    name="emoji",
+    description="The emoji to use for the sound",
+    opt_type=OptionType.STRING,
+    required=True
+)
+@slash_option(
+    name="sound",
+    description="The sound to add",
+    opt_type=OptionType.ATTACHMENT,
+    required=True
+)
+async def add_sound(ctx=SlashContext, *, name: str, emoji: str, sound: discord.Attachment):
+    await ctx.defer()
+    print("Adding sound "+name)
+    print(sound.url)
+    soundId = name.lower()+"_"+str(ctx.guild_id)
+    soundboardRow = {"$set":
+                     {
+                         "_id": soundId,
+                         "name": name,
+                         "server": ctx.guild_id,
+                         "emoji": emoji,
+                         "sound": sound.url
+                     }}
+    soundboardCollection.update_one(
+        {"_id": soundId}, soundboardRow, upsert=True)
+    await ctx.send("Added sound "+name)
+
+
+@slash_command(name="remove_sound", description="Remove a sound from the soundboard")
+@slash_option(
+    name="name",
+    description="The name of the sound to remove",
+    opt_type=OptionType.STRING,
+    required=True
+)
+async def remove_sound(ctx=SlashContext, *, name: str):
+    await ctx.defer()
+    soundId = name.lower()+"_"+str(ctx.guild_id)
+    soundboardCollection.delete_one({"_id": soundId})
+    await ctx.send("Removed sound "+name)
+
+
+@slash_command(name="soundboard", description="Play a sound from the soundboard")
+async def soundboard(ctx=SlashContext, *, name: str = None):
+    # get all sounds for the server
+    sounds = soundboardCollection.find(
+        {"server": ctx.guild_id})
+    buttons = []
+    for sound in sounds:
+        print(sound)
+        # add buttons for each sound
+        buttons.append(Button(
+            style=ButtonStyle.PRIMARY,
+            label=sound['name'],
+            emoji=sound['emoji'],
+            custom_id="soundboard_sound_"+sound['_id']
+        ))
+    embed = interactions.Embed(title="Soundboard", color=0x00ff00,
+                               description="Choose a sound to play")
+    await ctx.send(embed=embed, components=[ActionRow(*buttons)])
+
+
+@listen(CommandError, disable_default_listeners=True)
+async def on_command_error(event: CommandError):
+    traceback.print_exception(event.error)
+    if not event.ctx.responded:
+        await event.ctx.send("Something went wrong.")
 
 
 @ tasks.loop(minutes=1)

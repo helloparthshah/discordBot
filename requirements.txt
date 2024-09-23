@@ -1,10 +1,12 @@
-discord.py==1.7.3
-discord_py_interactions==5.13.1
-discord_py_slash_command==3.0.3
+discord.py==2.4.0
+discord_py_interactions==5.13.2
+discord_py_slash_command==4.2.1
 Pillow==10.3.0
 python-dotenv==1.0.1
-pytube @ git+https://github.com/an-dutra/pytube.git@patch-1
-Requests==2.31.0
+# pytube==15.0.0
+pytubefix==6.16.3
+Requests==2.32.3
 google-generativeai
-discord.py-interactions[voice]
+discord.py-interactions[voice]==5.13.2
 youtube-search==2.1.2
+pymongo==4.9.1
