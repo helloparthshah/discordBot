@@ -1,4 +1,5 @@
 discord.py==2.4.0
+discord-py[voice]==2.4.0
 discord_py_interactions==5.13.2
 discord_py_slash_command==4.2.1
 Pillow==10.3.0
