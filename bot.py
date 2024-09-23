@@ -1,7 +1,7 @@
 #!/usr/bin/python3
 from io import BytesIO
 import random
-from interactions import Intents, OptionType, listen, slash_command, slash_option
+from interactions import Intents, OptionType, listen, slash_command, slash_option, spread_to_rows
 import interactions
 import requests
 import os
@@ -696,8 +696,8 @@ async def on_component(event: Component):
         sound = soundboardCollection.find_one({"_id": id})
         print("Playing sound "+sound['name'])
         await ctx.defer()
-        await playUrl(ctx, sound['sound'])
         await ctx.send("Playing "+sound['name'])
+        await playUrl(ctx, sound['sound'])
 
 
 async def playUrl(ctx, url):
@@ -1089,6 +1089,9 @@ def saveSoundLocally(name, url):
     required=True
 )
 async def add_sound(ctx=SlashContext, *, name: str, emoji: str, sound: discord.Attachment):
+    if not ctx.author.has_permission(interactions.Permissions.CREATE_GUILD_EXPRESSIONS):
+        await ctx.send("You do not have permission to add sounds")
+        return
     await ctx.defer()
     print("Adding sound "+name)
     print(sound.url)
@@ -1114,6 +1117,9 @@ async def add_sound(ctx=SlashContext, *, name: str, emoji: str, sound: discord.A
     required=True
 )
 async def remove_sound(ctx=SlashContext, *, name: str):
+    if not ctx.author.has_permission(interactions.Permissions.CREATE_GUILD_EXPRESSIONS):
+        await ctx.send("You do not have permission to remove sounds")
+        return
     await ctx.defer()
     soundId = name.lower()+"_"+str(ctx.guild_id)
     soundboardCollection.delete_one({"_id": soundId})
@@ -1135,9 +1141,12 @@ async def soundboard(ctx=SlashContext, *, name: str = None):
             emoji=sound['emoji'],
             custom_id="soundboard_sound_"+sound['_id']
         ))
+    if (len(buttons) == 0):
+        await ctx.send("No sounds available")
+        return
     embed = interactions.Embed(title="Soundboard", color=0x00ff00,
                                description="Choose a sound to play")
-    await ctx.send(embed=embed, components=[ActionRow(*buttons)])
+    await ctx.send(embed=embed, components=spread_to_rows(*buttons))
 
 
 @listen(CommandError, disable_default_listeners=True)
