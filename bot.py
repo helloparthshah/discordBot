@@ -693,20 +693,25 @@ async def on_component(event: Component):
         return await skip_current(ctx)
     elif ctx.custom_id.startswith("soundboard_sound_"):
         id = ctx.custom_id.replace("soundboard_sound_", "")
-        sound = soundboardCollection.find_one({"_id": id})
-        print("Playing sound "+sound['name'])
-        await ctx.defer()
-        await ctx.send("Playing "+sound['name'])
-        await playUrl(ctx, sound['sound'])
+        await ctx.edit_origin(content="")
+        await playUrl(ctx, id)
 
 
-async def playUrl(ctx, url):
+async def playUrl(ctx, id):
+    sound = soundboardCollection.find_one({"_id": id})
+    url = sound['sound']
+    print("Playing sound "+sound['name'])
+    # check if file exists in cache (/sounds folder)
+    if not os.path.exists("sounds/"+id+".mp3"):
+        content = requests.get(url).content
+        with open("sounds/"+id+".mp3", "wb") as f:
+            f.write(content)
     # join the voice channel and play the audio
     if not ctx.voice_state:
         await ctx.author.voice.channel.connect()
     else:
         await ctx.voice_state.move(ctx.author.voice.channel)
-    audio = AudioVolume(url)
+    audio = AudioVolume("sounds/"+id+".mp3")
     await ctx.voice_state.play(audio)
 
 
