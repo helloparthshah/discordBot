@@ -5,7 +5,7 @@ discord_py_slash_command==4.2.1
 Pillow==10.3.0
 python-dotenv==1.0.1
 # pytube==15.0.0
-pytubefix==6.16.3
+pytubefix==6.17.0
 Requests==2.32.3
 google-generativeai
 discord.py-interactions[voice]==5.13.2
