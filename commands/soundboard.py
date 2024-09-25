@@ -114,6 +114,11 @@ class SoundboardCommands(Extension):
                          }}
         self.soundboardCollection.update_one(
             {"_id": soundId}, soundboardRow)
+        # delete the sound file from cache
+        ext = url.split(".")[-1].split("?")[0]
+        filename = "sounds/"+soundId+"."+ext
+        if os.path.exists(filename):
+            os.remove(filename)
         await ctx.send("Updated sound "+name)
 
     @update_sound.autocomplete("name")
