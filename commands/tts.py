@@ -12,9 +12,12 @@ class TTSCommands(Extension):
         self.PLAY_HT_KEY = os.getenv('PLAY_HT_KEY')
         self.PLAY_HT_APP_ID = os.getenv('PLAY_HT_APP_ID')
         self.cloned_voices = []
+
+    async def async_start(self):
         self.fetch_voices()
 
     def fetch_voices(self):
+        print("Fetching voices")
         url = "https://api.play.ht/api/v2/cloned-voices"
         headers = {
             "AUTHORIZATION": self.PLAY_HT_KEY,
