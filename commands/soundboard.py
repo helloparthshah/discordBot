@@ -19,10 +19,7 @@ class SoundboardCommands(Extension):
         database = MongoDbClient["discord-bot"]
         self.soundboardCollection = database["soundboard"]
 
-    async def playUrl(self, ctx, id):
-        sound = self.soundboardCollection.find_one({"_id": id})
-        url = sound['sound']
-        print("Playing sound "+sound['name'])
+    def saveFile(self, url, id):
         if not os.path.exists("sounds"):
             os.makedirs("sounds")
         content = requests.get(url).content
@@ -32,6 +29,14 @@ class SoundboardCommands(Extension):
         if not os.path.exists(filename):
             with open(filename, "wb") as f:
                 f.write(content)
+        return filename
+
+    async def playUrl(self, ctx, id):
+        sound = self.soundboardCollection.find_one({"_id": id})
+        url = sound['sound']
+        print("Playing sound "+sound['name'])
+        # save the file to cache
+        filename = self.saveFile(url, id)
         # join the voice channel and play the audio
         if not ctx.voice_state:
             await ctx.author.voice.channel.connect()
@@ -67,13 +72,18 @@ class SoundboardCommands(Extension):
         print("Adding sound "+name)
         print(sound.url)
         soundId = name.lower()+"_"+str(ctx.guild_id)
+        # send back as a file and get the download url from the message
+        filename = self.saveFile(sound.url, soundId)
+        message = await ctx.send(file=filename)
+        print(message.attachments)
+        url = message.attachments[0].url
         soundboardRow = {"$set":
                          {
                              "_id": soundId,
                              "name": name,
                              "server": ctx.guild_id,
                              "emoji": emoji,
-                             "sound": sound.url
+                             "sound": url
                          }}
         self.soundboardCollection.update_one(
             {"_id": soundId}, soundboardRow, upsert=True)
