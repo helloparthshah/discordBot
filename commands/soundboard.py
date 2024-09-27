@@ -34,8 +34,9 @@ class SoundboardCommands(Extension):
     def writeRawFile(self, filename, content):
         if not os.path.exists("sounds"):
             os.makedirs("sounds")
-        with open(filename, "wb") as f:
-            f.write(content)
+        if not os.path.exists(filename):   
+            with open(filename, "wb") as f:
+                f.write(content)
         return filename
 
     async def playUrl(self, ctx, id):
