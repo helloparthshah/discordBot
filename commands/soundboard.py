@@ -36,7 +36,13 @@ class SoundboardCommands(Extension):
         url = sound['sound']
         print("Playing sound "+sound['name'])
         # save the file to cache
-        filename = self.saveFile(url, id)
+        ext = url.split(".")[-1].split("?")[0]
+        filename = "sounds/"+id+"."+ext
+        if 'raw_sound' in sound:
+            with open(filename, "wb") as f:
+                f.write(sound['raw_sound'])
+        else:
+            filename = self.saveFile(url, id)
         # join the voice channel and play the audio
         if not ctx.voice_state:
             await ctx.author.voice.channel.connect()
@@ -72,18 +78,17 @@ class SoundboardCommands(Extension):
         print("Adding sound "+name)
         print(sound.url)
         soundId = name.lower()+"_"+str(ctx.guild_id)
-        # send back as a file and get the download url from the message
-        filename = self.saveFile(sound.url, soundId)
-        message = await ctx.send(file=filename)
-        print(message.attachments)
-        url = message.attachments[0].url
+
+        url = sound.url
+        content = requests.get(url).content
         soundboardRow = {"$set":
                          {
                              "_id": soundId,
                              "name": name,
                              "server": ctx.guild_id,
                              "emoji": emoji,
-                             "sound": url
+                             "sound": url,
+                             "raw_sound": content
                          }}
         self.soundboardCollection.update_one(
             {"_id": soundId}, soundboardRow, upsert=True)
@@ -139,7 +144,6 @@ class SoundboardCommands(Extension):
         for sound in sounds:
             choices.append(
                 {"name": sound["name"], "value": sound["name"]})
-        print(choices)
         await ctx.send(choices=choices)
 
     @update_sound.autocomplete("emoji")
@@ -173,7 +177,6 @@ class SoundboardCommands(Extension):
         for sound in sounds:
             choices.append(
                 {"name": sound["name"], "value": sound["name"]})
-        print(choices)
         await ctx.send(choices=choices)
 
     @slash_command(name="soundboard", description="Play a sound from the soundboard")
@@ -183,7 +186,6 @@ class SoundboardCommands(Extension):
             {"server": ctx.guild_id})
         buttons = []
         for sound in sounds:
-            print(sound)
             # add buttons for each sound
             buttons.append(Button(
                 style=ButtonStyle.PRIMARY,
