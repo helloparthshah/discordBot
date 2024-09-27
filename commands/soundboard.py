@@ -41,6 +41,8 @@ class SoundboardCommands(Extension):
 
     async def playUrl(self, ctx, id):
         filename = ""
+        if not os.path.exists("sounds"):
+            os.makedirs("sounds")
         for file in os.listdir("sounds"):
             if file.startswith(id):
                 print("Sound found in cache")
