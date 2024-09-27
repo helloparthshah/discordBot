@@ -31,6 +31,13 @@ class SoundboardCommands(Extension):
                 f.write(content)
         return filename
 
+    def writeRawFile(self, filename, content):
+        if not os.path.exists("sounds"):
+            os.makedirs("sounds")
+        with open(filename, "wb") as f:
+            f.write(content)
+        return filename
+
     async def playUrl(self, ctx, id):
         sound = self.soundboardCollection.find_one({"_id": id})
         url = sound['sound']
@@ -39,8 +46,7 @@ class SoundboardCommands(Extension):
         ext = url.split(".")[-1].split("?")[0]
         filename = "sounds/"+id+"."+ext
         if 'raw_sound' in sound:
-            with open(filename, "wb") as f:
-                f.write(sound['raw_sound'])
+            self.writeRawFile(filename, sound['raw_sound'])
         else:
             filename = self.saveFile(url, id)
         # join the voice channel and play the audio
