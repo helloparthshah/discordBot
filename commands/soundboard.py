@@ -308,8 +308,8 @@ class SoundboardCommands(Extension):
             return
         embed = Embed(title="Soundboard", color=0x00ff00,
                       description="Choose a sound to play")
-        # can only have 20 buttons per message
-        buttonGroups = [buttons[i:i + 20] for i in range(0, len(buttons), 20)]
+        # can only have 25 buttons per message
+        buttonGroups = [buttons[i:i + 25] for i in range(0, len(buttons), 25)]
         
         for buttonGroup in buttonGroups:
             await ctx.send(embed=embed, components=spread_to_rows(*buttonGroup))
