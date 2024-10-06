@@ -54,10 +54,10 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
 @bot.event
 async def setup_hook():
     print("Setting Up...")
-
-# extension_names = [m.name for m in pkgutil.iter_modules(
-#     ["commands"], prefix="commands.")]
-# for extension in extension_names:
-#     bot.load_extension(extension)
+    # extension_names = [m.name for m in pkgutil.iter_modules(
+    #     ["commands"], prefix="commands.")]
+    # for extension in extension_names:
+    #     await bot.load_extension(extension)
+    await bot.load_extension("commands.soundboard")
 
 bot.run(TOKEN)

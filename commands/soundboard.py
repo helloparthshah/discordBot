@@ -1,21 +1,73 @@
+import traceback
+import typing
 import discord
-from interactions import AutocompleteContext, Button, ButtonStyle, Embed, Extension, OptionType, Permissions, slash_command, slash_option, spread_to_rows, listen
+from discord import app_commands
+from discord.ui.select import BaseSelect
+from discord.ext import commands
 import os
 from dotenv import load_dotenv
-from interactions import SlashContext
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 import requests
-from interactions.api.events import Component
-from interactions.api.voice.audio import AudioVolume, RawInputAudio
 import pydub
 
+class BaseView(discord.ui.View):
+    interaction: discord.Interaction | None = None
+    message: discord.Message | None = None
 
-class SoundboardCommands(Extension):
+    def __init__(self,timeout: float = 60.0):
+        super().__init__(timeout=timeout)
+
+    # make sure that the view only processes interactions from the user who invoked the command
+    # async def interaction_check(self, interaction: discord.Interaction) -> bool:
+    #     if interaction.user.id != self.user.id:
+    #         await interaction.response.send_message(
+    #             "You cannot interact with this view.", ephemeral=True
+    #         )
+    #         return False
+    #     # update the interaction attribute when a valid interaction is received
+    #     self.interaction = interaction
+    #     return True
+
+    # to handle errors we first notify the user that an error has occurred and then disable all components
+
+    def _disable_all(self) -> None:
+        # disable all components
+        # so components that can be disabled are buttons and select menus
+        for item in self.children:
+            if isinstance(item, discord.ui.Button) or isinstance(item, BaseSelect):
+                item.disabled = True
+
+    # after disabling all components we need to edit the message with the new view
+    # now when editing the message there are two scenarios:
+    # 1. the view was never interacted with i.e in case of plain timeout here message attribute will come in handy
+    # 2. the view was interacted with and the interaction was processed and we have the latest interaction stored in the interaction attribute
+    async def _edit(self, **kwargs: typing.Any) -> None:
+        if self.interaction is None and self.message is not None:
+            # if the view was never interacted with and the message attribute is not None, edit the message
+            await self.message.edit(**kwargs)
+        elif self.interaction is not None:
+            try:
+                # if not already responded to, respond to the interaction
+                await self.interaction.response.edit_message(**kwargs)
+            except discord.InteractionResponded:
+                # if already responded to, edit the response
+                await self.interaction.edit_original_response(**kwargs)
+
+    async def on_timeout(self) -> None:
+        # disable all components
+        self._disable_all()
+        # edit the message with the new view
+        await self._edit(view=self)
+
+
+class SoundboardCommands(commands.Cog):
     def __init__(self, bot):
+        self.bot = bot
         load_dotenv()
         MONGODB_DB_URL = os.getenv('MONGODB_DB_URL')
 
+        print("Loading sounds")
         MongoDbClient = MongoClient(MONGODB_DB_URL, server_api=ServerApi('1'))
         database = MongoDbClient["discord-bot"]
         self.soundboardCollection = database["soundboard"]
@@ -40,7 +92,7 @@ class SoundboardCommands(Extension):
                 f.write(content)
         return filename
 
-    async def playUrl(self, ctx, id):
+    async def playUrl(self, inter: discord.Interaction, id):
         filename = ""
         if not os.path.exists("sounds"):
             os.makedirs("sounds")
@@ -63,48 +115,35 @@ class SoundboardCommands(Extension):
             else:
                 filename = self.saveFile(url, id)
         # join the voice channel and play the audio
-        if not ctx.voice_state:
-            await ctx.author.voice.channel.connect()
-        else:
-            await ctx.voice_state.move(ctx.author.voice.channel)
-        
-        testAS = pydub.AudioSegment.from_file("assets/kela.ogg")
-        testAS2 = pydub.AudioSegment.from_file("assets/vineboom.ogg")
-        overlay = testAS.overlay(testAS2)
-        overlay.export("assets/temp.wav", format="wav")
 
-        audio = AudioVolume("assets/temp.wav")
-        await ctx.voice_state.play(audio)
-        print(ctx.voice_client)
+        guild = inter.guild
+        if guild.voice_client == None or guild.voice_client.channel == None:
+            await inter.user.voice.channel.connect()
+        elif guild.voice_client.channel != inter.user.voice.channel:
+            await guild.change_voice_state(channel=inter.user.voice.channel)
+        
+        # testAS = pydub.AudioSegment.from_file("assets/kela.ogg")
+        # testAS2 = pydub.AudioSegment.from_file("assets/vineboom.ogg")
+        # overlay = testAS.overlay(testAS2)
+        # overlay.export("test.wav")
+
+        if guild.voice_client.is_playing():
+            guild.voice_client.stop()
+        guild.voice_client.play(discord.FFmpegPCMAudio(filename))
         
 
-    @slash_command(name="add_sound", description="Add a sound to the soundboard")
-    @slash_option(
-        name="name",
-        description="The name of the sound",
-        opt_type=OptionType.STRING,
-        required=True
-    )
-    @slash_option(
-        name="emoji",
-        description="The emoji to use for the sound",
-        opt_type=OptionType.STRING,
-        required=True
-    )
-    @slash_option(
-        name="sound",
-        description="The sound to add",
-        opt_type=OptionType.ATTACHMENT,
-        required=True
-    )
-    async def add_sound(self, ctx=SlashContext, *, name: str, emoji: str, sound: discord.Attachment):
-        if not ctx.author.has_permission(Permissions.CREATE_GUILD_EXPRESSIONS):
-            await ctx.send("You do not have permission to add sounds")
+    @app_commands.command(name="add_sound", description="Add a sound to the soundboard")
+    @app_commands.describe(name="The name of the sound", 
+                           emoji="The emoji to use for the sound", 
+                           sound="The sound to add")
+    async def add_sound(self, inter: discord.Interaction, name: str, emoji: str, sound: discord.Attachment):
+        if not inter.author.has_permission(discord.Permissions.create_expressions):
+            await inter.response.send_message("You do not have permission to add sounds")
             return
-        await ctx.defer()
+        await inter.response.defer()
         print("Adding sound "+name)
         print(sound.url)
-        soundId = name.lower()+"_"+str(ctx.guild_id)
+        soundId = name.lower()+"_"+str(inter.guild_id)
 
         url = sound.url
         content = requests.get(url).content
@@ -112,84 +151,66 @@ class SoundboardCommands(Extension):
                          {
                              "_id": soundId,
                              "name": name,
-                             "server": ctx.guild_id,
+                             "server": inter.guild_id,
                              "emoji": emoji,
                              "sound": url,
                              "raw_sound": content
                          }}
         self.soundboardCollection.update_one(
             {"_id": soundId}, soundboardRow, upsert=True)
-        await ctx.send("Added sound "+name)
+        await inter.response.send_message("Added sound "+name)
     
-    @slash_command(name="add_sound_url", description="Add a sound to the soundboard")
-    @slash_option(
-        name="name",
-        description="The name of the sound",
-        opt_type=OptionType.STRING,
-        required=True
-    )
-    @slash_option(
-        name="emoji",
-        description="The emoji to use for the sound",
-        opt_type=OptionType.STRING,
-        required=True
-    )
-    @slash_option(
-        name="url",
-        description="The sound to add",
-        opt_type=OptionType.STRING,
-        required=True
-    )
-    async def add_sound_url(self, ctx=SlashContext, *, name: str, emoji: str, url: str):
-        if not ctx.author.has_permission(Permissions.CREATE_GUILD_EXPRESSIONS):
-            await ctx.send("You do not have permission to add sounds")
+    @app_commands.command(name="add_sound_url", description="Add a sound to the soundboard")
+    @app_commands.describe(name="The name of the sound", emoji="The emoji to use for the sound", url="The sound to add")
+    async def add_sound_url(self, inter: discord.Interaction, name: str, emoji: str, url: str):
+        if not inter.author.has_permission(discord.Permissions.create_expressions):
+            await inter.response.send_message("You do not have permission to add sounds")
             return
-        await ctx.defer()
-        soundId = name.lower()+"_"+str(ctx.guild_id)
+        await inter.response.defer()
+        soundId = name.lower()+"_"+str(inter.guild_id)
 
         soundboardRow = {"$set":
                          {
                              "_id": soundId,
                              "name": name,
-                             "server": ctx.guild_id,
+                             "server": inter.guild_id,
                              "emoji": emoji,
                              "sound": url,
                          }}
         self.soundboardCollection.update_one(
             {"_id": soundId}, soundboardRow, upsert=True)
-        await ctx.send("Added sound "+name)
+        await inter.response.send_message("Added sound "+name)
 
-    @slash_command(name="update_sound_url", description="Update a sound on the soundboard")
-    @slash_option(
-        name="name",
-        description="The name of the sound to update",
-        opt_type=OptionType.STRING,
-        required=True
-    )
-    @slash_option(
-        name="emoji",
-        description="The emoji to use for the sound",
-        opt_type=OptionType.STRING,
-        required=True
-    )
-    @slash_option(
-        name="url",
-        description="Link to the sound",
-        opt_type=OptionType.STRING,
-        required=True
-    )
-    async def update_sound_url(self, ctx=SlashContext, *, name: str, emoji: str, url: str):
-        if not ctx.author.has_permission(Permissions.CREATE_GUILD_EXPRESSIONS):
-            await ctx.send("You do not have permission to update sounds")
+    async def autocomplete_name(self, inter: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        sounds = self.soundboardCollection.find(
+            {"server": inter.guild_id, "name": {"$regex": current, "$options": "i"}})
+        choices = []
+        for sound in sounds:
+            choices.append(
+                {"name": sound["name"], "value": sound["name"]})
+        return choices
+
+    async def autocomplete_emoji(self, inter: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        sound = self.soundboardCollection.find_one(
+            {"server": inter.guild_id, "name": current})
+        return [{"name": sound["emoji"], "value": sound["emoji"]}]
+
+    @app_commands.command(name="update_sound_url", description="Update a sound on the soundboard")
+    @app_commands.describe(name="The name of the sound to update", emoji="The emoji to use for the sound", url="Link to the sound")
+    @app_commands.autocomplete(name=autocomplete_name)
+    @app_commands.autocomplete(emoji=autocomplete_emoji)
+    async def update_sound_url(self, inter: discord.Interaction, name: str, emoji: str, url: str):
+        if not inter.author.has_permission(discord.Permissions.create_expressions):
+            await inter.response.send_message("You do not have permission to update sounds")
             return
-        await ctx.defer()
-        soundId = name.lower()+"_"+str(ctx.guild_id)
+        await inter.response.defer()
+        soundId = name.lower()+"_"+str(inter.guild_id)
         # update the sound in the database but remove the raw_sound field
         soundboardRow = {"$set":
                          {
                              "_id": soundId,
                              "name": name,
-                             "server": ctx.guild_id,
+                             "server": inter.guild_id,
                              "emoji": emoji,
                              "sound": url,
                          },
@@ -202,53 +223,20 @@ class SoundboardCommands(Extension):
         filename = "sounds/"+soundId+"."+ext
         if os.path.exists(filename):
             os.remove(filename)
-        await ctx.send("Updated sound "+name)
-
-    @update_sound_url.autocomplete("name")
-    async def autocomplete_name(self, ctx: SlashContext):
-        query = ctx.input_text
-        sounds = self.soundboardCollection.find(
-            {"server": ctx.guild_id, "name": {"$regex": query, "$options": "i"}})
-        choices = []
-        for sound in sounds:
-            choices.append(
-                {"name": sound["name"], "value": sound["name"]})
-        await ctx.send(choices=choices)
-
-    @update_sound_url.autocomplete("emoji")
-    async def autocomplete_emoji(self, ctx: SlashContext):
-        name = ctx.kwargs.get("name")
-        sound = self.soundboardCollection.find_one(
-            {"server": ctx.guild_id, "name": name})
-        await ctx.send(choices=[{"name": sound["emoji"], "value": sound["emoji"]}])
+        await inter.response.send_message("Updated sound "+name)
     
-    @slash_command(name="update_sound", description="Update a sound on the soundboard")
-    @slash_option(
-        name="name",
-        description="The name of the sound to update",
-        opt_type=OptionType.STRING,
-        required=True
-    )
-    @slash_option(
-        name="emoji",
-        description="The emoji to use for the sound",
-        opt_type=OptionType.STRING,
-        required=True
-    )
-    @slash_option(
-        name="sound",
-        description="The sound to add",
-        opt_type=OptionType.ATTACHMENT,
-        required=True
-    )
-    async def update_sound(self, ctx=SlashContext, *, name: str, emoji: str, sound: discord.Attachment):
-        if not ctx.author.has_permission(Permissions.CREATE_GUILD_EXPRESSIONS):
-            await ctx.send("You do not have permission to update sounds")
+    @app_commands.command(name="update_sound", description="Update a sound on the soundboard")
+    @app_commands.describe(name="The name of the sound to update", emoji="The emoji to use for the sound", sound="The sound to add")
+    @app_commands.autocomplete(name=autocomplete_name)
+    @app_commands.autocomplete(emoji=autocomplete_emoji)
+    async def update_sound(self, inter: discord.Interaction, name: str, emoji: str, sound: discord.Attachment):
+        if not inter.author.has_permission(discord.Permissions.create_expressions):
+            await inter.response.send_message("You do not have permission to update sounds")
             return
-        await ctx.defer()
+        await inter.response.defer()
         print("Updating sound "+name)
         print(sound.url)
-        soundId = name.lower()+"_"+str(ctx.guild_id)
+        soundId = name.lower()+"_"+str(inter.guild_id)
 
         url = sound.url
         content = requests.get(url).content
@@ -256,7 +244,7 @@ class SoundboardCommands(Extension):
                          {
                              "_id": soundId,
                              "name": name,
-                             "server": ctx.guild_id,
+                             "server": inter.guild_id,
                              "emoji": emoji,
                              "sound": url,
                              "raw_sound": content
@@ -268,70 +256,64 @@ class SoundboardCommands(Extension):
         filename = "sounds/"+soundId+"."+ext
         if os.path.exists(filename):
             os.remove(filename)
-        await ctx.send("Updated sound "+name)
-        
-    
-    @update_sound.autocomplete("name")
-    async def autocomplete_update_name(self, ctx: AutocompleteContext):
-        await self.autocomplete_name(ctx)
-    
-    @update_sound.autocomplete("emoji")
-    async def autocomplete_update_emoji(self, ctx: AutocompleteContext):
-        await self.autocomplete_emoji(ctx)
+        await inter.response.send_message("Updated sound "+name)
 
-    @slash_command(name="remove_sound", description="Remove a sound from the soundboard")
-    @slash_option(
-        name="name",
-        description="The name of the sound to remove",
-        opt_type=OptionType.STRING,
-        required=True
-    )
-    async def remove_sound(self, ctx=SlashContext, *, name: str):
-        if not ctx.author.has_permission(Permissions.CREATE_GUILD_EXPRESSIONS):
-            await ctx.send("You do not have permission to remove sounds")
+    @app_commands.command(name="remove_sound", description="Remove a sound from the soundboard")
+    @app_commands.describe(name="The name of the sound to remove")
+    @app_commands.autocomplete(name=autocomplete_name)
+    async def remove_sound(self, inter: discord.Interaction, name: str):
+        if not inter.author.has_permission(discord.Permissions.create_expressions):
+            await inter.response.send_message("You do not have permission to remove sounds")
             return
-        await ctx.defer()
-        soundId = name.lower()+"_"+str(ctx.guild_id)
+        await inter.response.defer()
+        soundId = name.lower()+"_"+str(inter.guild_id)
         self.soundboardCollection.delete_one({"_id": soundId})
-        await ctx.send("Removed sound "+name)
+        await inter.response.send_message("Removed sound "+name)
 
-    @remove_sound.autocomplete("name")
-    async def autocomplete_remove_name(self, ctx: AutocompleteContext):
-        await self.autocomplete_name(ctx)
+    async def playSoundCallback(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        if interaction.data["custom_id"].startswith("soundboard_sound_"):
+            id = interaction.data["custom_id"].replace("soundboard_sound_", "")
+            await self.playUrl(interaction, id)
 
-    @slash_command(name="soundboard", description="Play a sound from the soundboard")
-    async def soundboard(self, ctx=SlashContext, *, name: str = None):
+    @app_commands.command(name="soundboard", description="Play a sound from the soundboard")
+    async def soundboard(self, inter: discord.Interaction):
         # get all sounds for the server
         sounds = self.soundboardCollection.find(
-            {"server": ctx.guild_id})
+            {"server": inter.guild_id})
         buttons = []
         for sound in sounds:
             # add buttons for each sound
-            buttons.append(Button(
-                style=ButtonStyle.PRIMARY,
+            button = discord.ui.Button(
+                style=discord.ButtonStyle.primary,
                 label=sound['name'],
                 emoji=sound['emoji'],
                 custom_id="soundboard_sound_"+sound['_id']
-            ))
+            )
+            button.callback = self.playSoundCallback
+            buttons.append(button)
         if (len(buttons) == 0):
-            await ctx.send("No sounds available")
+            await inter.response.send_message("No sounds available")
             return
-        embed = Embed(title="Soundboard", color=0x00ff00,
+        embed = discord.Embed(title="Soundboard", color=0x00ff00,
                       description="Choose a sound to play")
         # can only have 25 buttons per message
         buttonGroups = [buttons[i:i + 25] for i in range(0, len(buttons), 25)]
         
         for buttonGroup in buttonGroups:
-            await ctx.send(embed=embed, components=spread_to_rows(*buttonGroup))
-
-    @listen(Component)
-    async def on_component(self, event: Component):
-        ctx = event.ctx
-        if ctx.custom_id.startswith("soundboard_sound_"):
-            id = ctx.custom_id.replace("soundboard_sound_", "")
-            await ctx.edit_origin(content="")
-            await self.playUrl(ctx, id)
+            view = BaseView()
+            for button in buttonGroup:
+                view.add_item(button)
+            if inter.response.is_done():
+                await inter.followup.send(view=view)
+            else:
+                await inter.response.send_message(view=view)
 
 
-def setup(bot):
-    SoundboardCommands(bot)
+
+async def setup(bot):
+    print("Adding soundboard")
+    await bot.add_cog(SoundboardCommands(bot))
+
+async def teardown(bot):
+    print("Unloaded Soundboard")
