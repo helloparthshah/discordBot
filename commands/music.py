@@ -151,7 +151,7 @@ class MusicCommands(Extension):
         await self.pause_audio(ctx)
         await ctx.send('Paused the audio')
 
-    async def pause_audio(ctx: SlashContext):
+    async def pause_audio(self, ctx: SlashContext):
         if not ctx.voice_state:
             return await ctx.send('Not connected to any voice channel')
         ctx.voice_state.pause()
@@ -212,17 +212,17 @@ class MusicCommands(Extension):
             await ctx.edit_origin(components=[
                 ActionRow(
                     Button(
-                        style=ButtonStyle.green,
+                        style=ButtonStyle.GREEN,
                         emoji="▶️",
                         custom_id="resume"
                     ),
                     Button(
-                        style=ButtonStyle.grey,
+                        style=ButtonStyle.GREY,
                         emoji="⏹",
                         custom_id="stop"
                     ),
                     Button(
-                        style=ButtonStyle.grey,
+                        style=ButtonStyle.GREY,
                         emoji="⏭",
                         custom_id="skip"
                     ),
@@ -233,17 +233,17 @@ class MusicCommands(Extension):
             await ctx.edit_origin(components=[
                 ActionRow(
                     Button(
-                        style=ButtonStyle.grey,
+                        style=ButtonStyle.GREY,
                         emoji="⏸",
                         custom_id="pause"
                     ),
                     Button(
-                        style=ButtonStyle.grey,
+                        style=ButtonStyle.GREY,
                         emoji="⏹",
                         custom_id="stop"
                     ),
                     Button(
-                        style=ButtonStyle.grey,
+                        style=ButtonStyle.GREY,
                         emoji="⏭",
                         custom_id="skip"
                     ),
