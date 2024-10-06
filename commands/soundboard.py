@@ -7,7 +7,8 @@ from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 import requests
 from interactions.api.events import Component
-from interactions.api.voice.audio import AudioVolume
+from interactions.api.voice.audio import AudioVolume, RawInputAudio
+import pydub
 
 
 class SoundboardCommands(Extension):
@@ -66,8 +67,16 @@ class SoundboardCommands(Extension):
             await ctx.author.voice.channel.connect()
         else:
             await ctx.voice_state.move(ctx.author.voice.channel)
-        audio = AudioVolume(filename)
+        
+        testAS = pydub.AudioSegment.from_file("assets/kela.ogg")
+        testAS2 = pydub.AudioSegment.from_file("assets/vineboom.ogg")
+        overlay = testAS.overlay(testAS2)
+        overlay.export("assets/temp.wav", format="wav")
+
+        audio = AudioVolume("assets/temp.wav")
         await ctx.voice_state.play(audio)
+        print(ctx.voice_client)
+        
 
     @slash_command(name="add_sound", description="Add a sound to the soundboard")
     @slash_option(
@@ -260,6 +269,7 @@ class SoundboardCommands(Extension):
         if os.path.exists(filename):
             os.remove(filename)
         await ctx.send("Updated sound "+name)
+        
     
     @update_sound.autocomplete("name")
     async def autocomplete_update_name(self, ctx: AutocompleteContext):
