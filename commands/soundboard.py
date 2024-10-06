@@ -137,7 +137,7 @@ class SoundboardCommands(commands.Cog):
                            emoji="The emoji to use for the sound", 
                            sound="The sound to add")
     async def add_sound(self, inter: discord.Interaction, name: str, emoji: str, sound: discord.Attachment):
-        if not inter.author.has_permission(discord.Permissions.create_expressions):
+        if not inter.user.guild_permissions.create_expressions:
             await inter.response.send_message("You do not have permission to add sounds")
             return
         await inter.response.defer()
@@ -163,7 +163,7 @@ class SoundboardCommands(commands.Cog):
     @app_commands.command(name="add_sound_url", description="Add a sound to the soundboard")
     @app_commands.describe(name="The name of the sound", emoji="The emoji to use for the sound", url="The sound to add")
     async def add_sound_url(self, inter: discord.Interaction, name: str, emoji: str, url: str):
-        if not inter.author.has_permission(discord.Permissions.create_expressions):
+        if not inter.user.guild_permissions.create_expressions:
             await inter.response.send_message("You do not have permission to add sounds")
             return
         await inter.response.defer()
@@ -200,7 +200,7 @@ class SoundboardCommands(commands.Cog):
     @app_commands.autocomplete(name=autocomplete_name)
     @app_commands.autocomplete(emoji=autocomplete_emoji)
     async def update_sound_url(self, inter: discord.Interaction, name: str, emoji: str, url: str):
-        if not inter.author.has_permission(discord.Permissions.create_expressions):
+        if not inter.user.guild_permissions.create_expressions:
             await inter.response.send_message("You do not have permission to update sounds")
             return
         await inter.response.defer()
@@ -230,7 +230,7 @@ class SoundboardCommands(commands.Cog):
     @app_commands.autocomplete(name=autocomplete_name)
     @app_commands.autocomplete(emoji=autocomplete_emoji)
     async def update_sound(self, inter: discord.Interaction, name: str, emoji: str, sound: discord.Attachment):
-        if not inter.author.has_permission(discord.Permissions.create_expressions):
+        if not inter.user.guild_permissions.create_expressions:
             await inter.response.send_message("You do not have permission to update sounds")
             return
         await inter.response.defer()
@@ -262,7 +262,7 @@ class SoundboardCommands(commands.Cog):
     @app_commands.describe(name="The name of the sound to remove")
     @app_commands.autocomplete(name=autocomplete_name)
     async def remove_sound(self, inter: discord.Interaction, name: str):
-        if not inter.author.has_permission(discord.Permissions.create_expressions):
+        if not inter.user.guild_permissions.create_expressions:
             await inter.response.send_message("You do not have permission to remove sounds")
             return
         await inter.response.defer()
