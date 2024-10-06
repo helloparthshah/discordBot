@@ -14,7 +14,7 @@ music_queue = {}
 class MusicQueueSong:
     def __init__(self, url):
         self.url = url
-        self.yt = YouTube(url)
+        self.yt = YouTube(url, client='WEB_CREATOR')
 
 
 class MusicCommands(Extension):
