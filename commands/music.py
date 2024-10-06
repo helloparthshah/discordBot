@@ -8,6 +8,8 @@ import os
 import discord
 from interactions.api.events import Component
 
+from commands.soundboard import SoundboardCommands
+
 music_queue = {}
 
 
@@ -194,8 +196,10 @@ class MusicCommands(Extension):
             await ctx.author.voice.channel.connect()
         else:
             await ctx.voice_state.move(ctx.author.voice.channel)
-        print("Playing "+file.url)
-        audio = AudioVolume(file.url)
+        # download the file
+        filename = SoundboardCommands.saveFile(file.url, file.filename)
+        print("Playing "+filename)
+        audio = AudioVolume(filename)
         await ctx.send("Playing "+file.url)
         await ctx.voice_state.play(audio)
 

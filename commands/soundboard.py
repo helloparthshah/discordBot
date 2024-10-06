@@ -19,7 +19,8 @@ class SoundboardCommands(Extension):
         database = MongoDbClient["discord-bot"]
         self.soundboardCollection = database["soundboard"]
 
-    def saveFile(self, url, id):
+    @staticmethod
+    def saveFile(url, id):
         if not os.path.exists("sounds"):
             os.makedirs("sounds")
         content = requests.get(url).content
