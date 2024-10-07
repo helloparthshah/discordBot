@@ -1,3 +1,6 @@
+import asyncio
+import io
+import time
 import traceback
 import typing
 import discord
@@ -15,7 +18,7 @@ class BaseView(discord.ui.View):
     interaction: discord.Interaction | None = None
     message: discord.Message | None = None
 
-    def __init__(self,timeout: float = 60.0):
+    def __init__(self,timeout: float = None):
         super().__init__(timeout=timeout)
 
     # make sure that the view only processes interactions from the user who invoked the command
@@ -72,6 +75,18 @@ class SoundboardCommands(commands.Cog):
         database = MongoDbClient["discord-bot"]
         self.soundboardCollection = database["soundboard"]
 
+        # Create encoder
+        if not discord.opus.is_loaded:
+            discord.opus.load_opus()
+        self.encoder = discord.opus.Encoder(
+            application='audio',
+            bitrate=128,
+            fec=True,
+            expected_packet_loss=0.15,
+            bandwidth='full',
+            signal_type='auto',
+        )
+
     def saveFile(self, url, id):
         if not os.path.exists("sounds"):
             os.makedirs("sounds")
@@ -122,14 +137,29 @@ class SoundboardCommands(commands.Cog):
         elif guild.voice_client.channel != inter.user.voice.channel:
             await guild.change_voice_state(channel=inter.user.voice.channel)
         
-        # testAS = pydub.AudioSegment.from_file("assets/kela.ogg")
-        # testAS2 = pydub.AudioSegment.from_file("assets/vineboom.ogg")
-        # overlay = testAS.overlay(testAS2)
-        # overlay.export("test.wav")
+        # if guild.voice_client.is_playing():
+        #     guild.voice_client.stop()
+        #guild.voice_client.play(discord.FFmpegPCMAudio(filename))
 
-        if guild.voice_client.is_playing():
-            guild.voice_client.stop()
-        guild.voice_client.play(discord.FFmpegPCMAudio(filename))
+        testAS = pydub.AudioSegment.from_file("assets/kela.ogg")
+        testAS2 = pydub.AudioSegment.from_file("assets/vineboom.ogg")
+        overlay = testAS.overlay(testAS2).set_channels(1)
+
+        buffer = io.BytesIO()
+        overlay.export(buffer, format="s16le", parameters=["-ac", "1", "-ar", "48000"])
+        buffer.seek(0)
+
+        opusData = self.encoder.encode(buffer.getvalue(), self.encoder.SAMPLES_PER_FRAME)
+
+        with open("assets/test.ogg", "wb") as f:
+            f.write(opusData)
+
+        chunk_size = 1024  # Size of each audio packet
+        for i in range(0, len(opusData), chunk_size):
+            data = opusData[i:i+chunk_size]
+            if not data:
+                break
+            guild.voice_client.send_audio_packet(data, encode=False)
         
 
     @app_commands.command(name="add_sound", description="Add a sound to the soundboard")
