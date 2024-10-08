@@ -56,7 +56,7 @@ class AudioPlayer(threading.Thread):
             with self._lock:
                 self.soundQueue = [buffer for buffer in self.soundQueue if buffer.tell() != len(buffer.getbuffer()) ]
                 for buffer in self.soundQueue:
-                    data = buffer.read(1920) #20ms for one frame
+                    data = buffer.read(3840) #20ms for one frame
                     break
                 
 
@@ -84,8 +84,8 @@ class AudioPlayer(threading.Thread):
             opusData = self.encoder.encode(data, self.encoder.SAMPLES_PER_FRAME)
             print(len(data))
             play_audio(opusData, encode=False)
-            delay = max(0, self.DELAY - (time.perf_counter() - startTimer))
-            #time.sleep(0.01)
+            delay = max(0, self.DELAY - (time.perf_counter() - startTimer)) #need to update for better precision and re-syncing to 20ms segments from loop start, implement after overlay queueing
+            time.sleep(0.01)
             
 
     def run(self) -> None:

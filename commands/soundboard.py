@@ -157,7 +157,7 @@ class SoundboardCommands(commands.Cog):
         overlay = testAS.overlay(testAS2).set_channels(1)
 
         buffer = io.BytesIO()
-        overlay.export(buffer, format="s16le", parameters=["-ac", "1", "-ar", "48000"])
+        overlay.export(buffer, format="s16le", parameters=["-ac", "2", "-ar", "48000"])
         buffer.seek(0)
 
         self.audioClients[guild].add_to_source_queue(buffer)
