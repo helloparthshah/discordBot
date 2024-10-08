@@ -14,6 +14,9 @@ from pymongo.server_api import ServerApi
 import requests
 import pydub
 
+import utils
+import utils.audio_player
+
 class BaseView(discord.ui.View):
     interaction: discord.Interaction | None = None
     message: discord.Message | None = None
@@ -87,6 +90,8 @@ class SoundboardCommands(commands.Cog):
             signal_type='auto',
         )
 
+        self.audioClients = {}
+
     def saveFile(self, url, id):
         if not os.path.exists("sounds"):
             os.makedirs("sounds")
@@ -137,8 +142,14 @@ class SoundboardCommands(commands.Cog):
         elif guild.voice_client.channel != inter.user.voice.channel:
             await guild.change_voice_state(channel=inter.user.voice.channel)
         
-        # if guild.voice_client.is_playing():
-        #     guild.voice_client.stop()
+        if (guild not in self.audioClients.keys() or
+                self.audioClients[guild] == None or
+                self.audioClients[guild].current_client() != guild.voice_client):
+            self.audioClients[guild] = utils.audio_player.AudioPlayer(guild.voice_client,
+                                                                      self.encoder)
+            self.audioClients[guild].start()
+
+
         #guild.voice_client.play(discord.FFmpegPCMAudio(filename))
 
         testAS = pydub.AudioSegment.from_file("assets/kela.ogg")
@@ -149,17 +160,7 @@ class SoundboardCommands(commands.Cog):
         overlay.export(buffer, format="s16le", parameters=["-ac", "1", "-ar", "48000"])
         buffer.seek(0)
 
-        opusData = self.encoder.encode(buffer.getvalue(), self.encoder.SAMPLES_PER_FRAME)
-
-        with open("assets/test.ogg", "wb") as f:
-            f.write(opusData)
-
-        chunk_size = 1024  # Size of each audio packet
-        for i in range(0, len(opusData), chunk_size):
-            data = opusData[i:i+chunk_size]
-            if not data:
-                break
-            guild.voice_client.send_audio_packet(data, encode=False)
+        self.audioClients[guild].add_to_source_queue(buffer)
         
 
     @app_commands.command(name="add_sound", description="Add a sound to the soundboard")
