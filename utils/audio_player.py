@@ -84,8 +84,8 @@ class AudioPlayer(threading.Thread):
             opusData = self.encoder.encode(data, self.encoder.SAMPLES_PER_FRAME)
             print(len(data))
             play_audio(opusData, encode=False)
-            delay = max(0, self.DELAY)# - (time.perf_counter() - startTimer))
-            time.sleep(delay)
+            delay = max(0, self.DELAY - (time.perf_counter() - startTimer))
+            time.sleep(0.2)
             
 
     def run(self) -> None:
