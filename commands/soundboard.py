@@ -189,7 +189,7 @@ class SoundboardCommands(commands.Cog):
                          }}
         self.soundboardCollection.update_one(
             {"_id": soundId}, soundboardRow, upsert=True)
-        await inter.response.send_message("Added sound "+name)
+        await inter.followup.send("Added sound "+name)
     
     @app_commands.command(name="add_sound_url", description="Add a sound to the soundboard")
     @app_commands.describe(name="The name of the sound", emoji="The emoji to use for the sound", url="The sound to add")
