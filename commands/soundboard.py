@@ -157,10 +157,11 @@ class SoundboardCommands(commands.Cog):
         overlay = testAS.overlay(testAS2).set_channels(1)
 
         buffer = io.BytesIO()
-        overlay.export(buffer, format="s16le", parameters=["-ac", "2", "-ar", "48000"])
+        #overlay.export(buffer, format="s16le", parameters=["-ac", "2", "-ar", "48000"])
+        overlay.export(buffer, format="raw")
         buffer.seek(0)
 
-        self.audioClients[guild].add_to_source_queue(buffer)
+        self.audioClients[guild].add_to_source_queue(pydub.AudioSegment.from_file(filename))
         
 
     @app_commands.command(name="add_sound", description="Add a sound to the soundboard")

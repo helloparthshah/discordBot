@@ -12,6 +12,8 @@ from discord.opus import Encoder as OpusEncoder, OPUS_SILENCE
 from discord.oggparse import OggStream
 from discord.utils import MISSING
 
+import pydub
+
 _log = logging.getLogger(__name__)
 
 
@@ -41,7 +43,7 @@ class AudioPlayer(threading.Thread):
             raise TypeError('Expected a callable for the "after" parameter.')
         
         self.encoder = encoder
-        self.soundQueue:List[BytesIO] = []
+        self.soundQueue:pydub.AudioSegment = None
 
     def _do_run(self) -> None:
         # getattr lookup speed ups
@@ -60,15 +62,24 @@ class AudioPlayer(threading.Thread):
                 newLoopStarted = False
             data = None
             with self._lock:
-                self.soundQueue = [buffer for buffer in self.soundQueue if buffer.tell() != len(buffer.getbuffer()) ]
-                for buffer in self.soundQueue:
-                    data = buffer.read(3840) #20ms, 16 bit, 48khz for one frame
-                    break
+                if self.soundQueue != None:
+                    readLen = min(3840, len(self.soundQueue.raw_data))
+                    frame = bytearray(3840)
+                    frame[0:readLen] = self.soundQueue.raw_data[0:readLen] #3840 for 20ms, 16 bit, 48khz for one frame
+                    data = bytes(frame)
+                    if readLen < 3840:
+                        self.soundQueue = None
+                        self._items_in_queue.clear()
+                    else:
+                        buffer = BytesIO(self.soundQueue.raw_data[readLen:])
+                        buffer.seek(0)
+                        self.soundQueue = pydub.AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=48000)
+                else:
+                    self._items_in_queue.clear()
                 
 
             if not data:
                 self.send_silence()
-                self._items_in_queue.clear()
                 newLoopStarted = True
                 continue
 
@@ -120,7 +131,16 @@ class AudioPlayer(threading.Thread):
     def current_client(self) -> VoiceClient:
         return self.client
     
-    def add_to_source_queue(self, buffer: BytesIO):
+    def add_to_source_queue(self, newSound: pydub.AudioSegment):
+        if newSound.frame_rate != 48000 or newSound.channels != 2: #sample rate isnt 48 khz stereo, need to convert
+            print("file not in 48khz stereo, converting")
+            buffer = BytesIO()
+            newSound.export(buffer, format="s16le", parameters=["-ac", "2", "-ar", "48000"])
+            buffer.seek(0)
+            newSound = pydub.AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=48000)
         with self._lock:
-            self.soundQueue.append(buffer)
-        self._items_in_queue.set()
+            if self.soundQueue == None:
+                self.soundQueue = newSound
+            else:
+                self.soundQueue = self.soundQueue.overlay(newSound)
+            self._items_in_queue.set()
