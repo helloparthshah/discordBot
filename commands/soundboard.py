@@ -113,6 +113,7 @@ class SoundboardCommands(commands.Cog):
         return filename
 
     async def playUrl(self, inter: discord.Interaction, id):
+        print("received sound request")
         filename = ""
         if not os.path.exists("sounds"):
             os.makedirs("sounds")
@@ -162,6 +163,7 @@ class SoundboardCommands(commands.Cog):
         buffer.seek(0)
 
         self.audioClients[guild].add_to_source_queue(pydub.AudioSegment.from_file(filename))
+        print("finished sending sound")
         
 
     @app_commands.command(name="add_sound", description="Add a sound to the soundboard")

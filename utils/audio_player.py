@@ -31,7 +31,7 @@ class AudioPlayer(threading.Thread):
         self.client: VoiceClient = client
         self.after: Optional[Callable[[Optional[Exception]], Any]] = after
 
-        # self._end: threading.Event = threading.Event()
+        self._end: threading.Event = threading.Event()
         # self._resumed: threading.Event = threading.Event()
         # self._resumed.set()  # we are not paused
         self._items_in_queue = threading.Event()
@@ -55,8 +55,11 @@ class AudioPlayer(threading.Thread):
         startTimer = None
         loops = None
         while True:
+            if self._end.is_set():
+                break
             self._items_in_queue.wait()
             if newLoopStarted:
+                print("New loop started")
                 startTimer = time.perf_counter()
                 loops = 0
                 newLoopStarted = False
@@ -70,6 +73,7 @@ class AudioPlayer(threading.Thread):
                     if readLen < 3840:
                         self.soundQueue = None
                         self._items_in_queue.clear()
+                        newLoopStarted = True
                     else:
                         buffer = BytesIO(self.soundQueue.raw_data[readLen:])
                         buffer.seek(0)
@@ -83,6 +87,8 @@ class AudioPlayer(threading.Thread):
                 newLoopStarted = True
                 continue
 
+            loops += 1
+
             # are we disconnected from voice?
             if not client.is_connected():
                 _log.debug('Not connected, waiting for %ss...', client.timeout)
@@ -94,9 +100,7 @@ class AudioPlayer(threading.Thread):
                 _log.debug('Reconnected, resuming playback')
                 self._speak(SpeakingState.voice)
 
-            opusData = data
             opusData = self.encoder.encode(data, self.encoder.SAMPLES_PER_FRAME)
-            print(len(data))
             play_audio(opusData, encode=False)
             next_time = startTimer + self.DELAY * loops
             delay = max(0, self.DELAY + (next_time - time.perf_counter()))
@@ -113,6 +117,9 @@ class AudioPlayer(threading.Thread):
             #self._call_after()
             #self.source.cleanup()
             pass
+        
+    def stop(self):
+        self._end.set()
 
     def _speak(self, speaking: SpeakingState) -> None:
         try:
@@ -132,15 +139,20 @@ class AudioPlayer(threading.Thread):
         return self.client
     
     def add_to_source_queue(self, newSound: pydub.AudioSegment):
-        if newSound.frame_rate != 48000 or newSound.channels != 2: #sample rate isnt 48 khz stereo, need to convert
+        if True: #newSound.frame_rate != 48000 or newSound.channels != 2: #sample rate isnt 48 khz stereo, need to convert
             print("file not in 48khz stereo, converting")
+            newSound = newSound.set_sample_width(2).set_channels(2).set_frame_rate(48000)
             buffer = BytesIO()
             newSound.export(buffer, format="s16le", parameters=["-ac", "2", "-ar", "48000"])
             buffer.seek(0)
             newSound = pydub.AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=48000)
+        print("Waiting to overlay")
         with self._lock:
             if self.soundQueue == None:
                 self.soundQueue = newSound
             else:
-                self.soundQueue = self.soundQueue.overlay(newSound)
+                if len(self.soundQueue) > len(newSound):
+                    self.soundQueue = self.soundQueue.overlay(newSound)
+                else:
+                    self.soundQueue = newSound.overlay(self.soundQueue)
             self._items_in_queue.set()
