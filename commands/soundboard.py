@@ -150,18 +150,6 @@ class SoundboardCommands(commands.Cog):
                                                                       self.encoder)
             self.audioClients[guild].start()
 
-
-        #guild.voice_client.play(discord.FFmpegPCMAudio(filename))
-
-        testAS = pydub.AudioSegment.from_file("assets/kela.ogg")
-        testAS2 = pydub.AudioSegment.from_file("assets/vineboom.ogg")
-        overlay = testAS.overlay(testAS2).set_channels(1)
-
-        buffer = io.BytesIO()
-        #overlay.export(buffer, format="s16le", parameters=["-ac", "2", "-ar", "48000"])
-        overlay.export(buffer, format="raw")
-        buffer.seek(0)
-
         self.audioClients[guild].add_to_source_queue(pydub.AudioSegment.from_file(filename), inter.user)
         print("finished sending sound")
         
