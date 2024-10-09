@@ -5,6 +5,7 @@ import threading
 import time
 from typing import Any, Callable, Generic, IO, List, Optional, TYPE_CHECKING, Tuple, TypeVar, Union
 
+import discord
 from discord import AudioSource, VoiceClient
 from discord.enums import SpeakingState
 from discord.errors import ClientException
@@ -45,6 +46,8 @@ class AudioPlayer(threading.Thread):
         self.encoder = encoder
         self.soundQueue:pydub.AudioSegment = None
 
+        self.userDict = {}
+
     def _do_run(self) -> None:
         # getattr lookup speed ups
         client = self.client
@@ -78,6 +81,9 @@ class AudioPlayer(threading.Thread):
                         buffer = BytesIO(self.soundQueue.raw_data[readLen:])
                         buffer.seek(0)
                         self.soundQueue = pydub.AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=48000)
+                    for user in self.userDict.keys():
+                        self.userDict[user] -= 3840
+                    self.userDict = {key:val for key, val in self.userDict.items() if val > 0}
                 else:
                     self._items_in_queue.clear()
                 
@@ -138,7 +144,7 @@ class AudioPlayer(threading.Thread):
     def current_client(self) -> VoiceClient:
         return self.client
     
-    def add_to_source_queue(self, newSound: pydub.AudioSegment):
+    def add_to_source_queue(self, newSound: pydub.AudioSegment, user: discord.User) -> bool:
         if True: #newSound.frame_rate != 48000 or newSound.channels != 2: #sample rate isnt 48 khz stereo, need to convert
             print("file not in 48khz stereo, converting")
             newSound = newSound.set_sample_width(2).set_channels(2).set_frame_rate(48000)
@@ -148,6 +154,11 @@ class AudioPlayer(threading.Thread):
             newSound = pydub.AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=48000)
         print("Waiting to overlay")
         with self._lock:
+            print(self.userDict)
+            if user.id in self.userDict and self.userDict[user.id] != None:
+                print("REJECTING USER REQUEST, ALREADY PLAYING")
+                return False
+            self.userDict[user.id] = len(newSound.raw_data)
             if self.soundQueue == None:
                 self.soundQueue = newSound
             else:
@@ -156,3 +167,4 @@ class AudioPlayer(threading.Thread):
                 else:
                     self.soundQueue = newSound.overlay(self.soundQueue)
             self._items_in_queue.set()
+        return True

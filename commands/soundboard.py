@@ -162,7 +162,7 @@ class SoundboardCommands(commands.Cog):
         overlay.export(buffer, format="raw")
         buffer.seek(0)
 
-        self.audioClients[guild].add_to_source_queue(pydub.AudioSegment.from_file(filename))
+        self.audioClients[guild].add_to_source_queue(pydub.AudioSegment.from_file(filename), inter.user)
         print("finished sending sound")
         
 
