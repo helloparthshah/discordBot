@@ -11,3 +11,4 @@ google-generativeai
 discord.py-interactions[voice]==5.13.2
 youtube-search==2.1.2
 pymongo==4.9.1
+pydub==0.25.1
