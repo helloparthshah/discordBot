@@ -29,9 +29,11 @@ class AudioPlayer(threading.Thread):
         self.client: VoiceClient = client
         self.after: Optional[Callable[[Optional[Exception]], Any]] = after
 
-        self._end: threading.Event = threading.Event()
-        self._resumed: threading.Event = threading.Event()
-        self._resumed.set()  # we are not paused
+        # self._end: threading.Event = threading.Event()
+        # self._resumed: threading.Event = threading.Event()
+        # self._resumed.set()  # we are not paused
+        self._items_in_queue = threading.Event()
+        self._items_in_queue.clear()
         self._current_error: Optional[Exception] = None
         self._lock: threading.Lock = threading.Lock()
 
@@ -42,28 +44,32 @@ class AudioPlayer(threading.Thread):
         self.soundQueue:List[BytesIO] = []
 
     def _do_run(self) -> None:
-        self.loops = 0
-        self._start = time.perf_counter()
-
         # getattr lookup speed ups
         client = self.client
         play_audio = client.send_audio_packet
         self._speak(SpeakingState.voice)
 
-        while client.is_connected():
-            startTimer = time.perf_counter()
+        newLoopStarted = True
+        startTimer = None
+        loops = None
+        while True:
+            self._items_in_queue.wait()
+            if newLoopStarted:
+                startTimer = time.perf_counter()
+                loops = 0
+                newLoopStarted = False
             data = None
             with self._lock:
                 self.soundQueue = [buffer for buffer in self.soundQueue if buffer.tell() != len(buffer.getbuffer()) ]
                 for buffer in self.soundQueue:
-                    data = buffer.read(3840) #20ms for one frame
+                    data = buffer.read(3840) #20ms, 16 bit, 48khz for one frame
                     break
                 
 
             if not data:
-                #self.stop()
                 self.send_silence()
-                time.sleep(1)
+                self._items_in_queue.clear()
+                newLoopStarted = True
                 continue
 
             # are we disconnected from voice?
@@ -76,16 +82,14 @@ class AudioPlayer(threading.Thread):
                     return
                 _log.debug('Reconnected, resuming playback')
                 self._speak(SpeakingState.voice)
-                # reset our internal data
-                self.loops = 0
-                self._start = time.perf_counter()
 
             opusData = data
             opusData = self.encoder.encode(data, self.encoder.SAMPLES_PER_FRAME)
             print(len(data))
             play_audio(opusData, encode=False)
-            delay = max(0, self.DELAY - (time.perf_counter() - startTimer)) #need to update for better precision and re-syncing to 20ms segments from loop start, implement after overlay queueing
-            time.sleep(0.01)
+            next_time = startTimer + self.DELAY * loops
+            delay = max(0, self.DELAY + (next_time - time.perf_counter()))
+            time.sleep(delay)
             
 
     def run(self) -> None:
@@ -95,49 +99,9 @@ class AudioPlayer(threading.Thread):
             self._current_error = exc
             self.stop()
         finally:
-            self._call_after()
+            #self._call_after()
             #self.source.cleanup()
-
-    def _call_after(self) -> None:
-        error = self._current_error
-
-        if self.after is not None:
-            try:
-                self.after(error)
-            except Exception as exc:
-                exc.__context__ = error
-                _log.exception('Calling the after function failed.', exc_info=exc)
-        elif error:
-            _log.exception('Exception in voice thread %s', self.name, exc_info=error)
-
-    def stop(self) -> None:
-        self._end.set()
-        self._resumed.set()
-        self._speak(SpeakingState.none)
-
-    def pause(self, *, update_speaking: bool = True) -> None:
-        self._resumed.clear()
-        if update_speaking:
-            self._speak(SpeakingState.none)
-
-    def resume(self, *, update_speaking: bool = True) -> None:
-        self.loops: int = 0
-        self._start: float = time.perf_counter()
-        self._resumed.set()
-        if update_speaking:
-            self._speak(SpeakingState.voice)
-
-    def is_playing(self) -> bool:
-        return self._resumed.is_set() and not self._end.is_set()
-
-    def is_paused(self) -> bool:
-        return not self._end.is_set() and not self._resumed.is_set()
-
-    def set_source(self, source: AudioSource) -> None:
-        with self._lock:
-            self.pause(update_speaking=False)
-            self.source = source
-            self.resume(update_speaking=False)
+            pass
 
     def _speak(self, speaking: SpeakingState) -> None:
         try:
@@ -159,3 +123,4 @@ class AudioPlayer(threading.Thread):
     def add_to_source_queue(self, buffer: BytesIO):
         with self._lock:
             self.soundQueue.append(buffer)
+        self._items_in_queue.set()
