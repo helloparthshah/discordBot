@@ -91,6 +91,7 @@ class SoundboardCommands(commands.Cog):
         )
 
         self.audioClients = {}
+        self.audioVolume = {}
 
     def saveFile(self, url, id):
         if not os.path.exists("sounds"):
@@ -140,6 +141,8 @@ class SoundboardCommands(commands.Cog):
         guild = inter.guild
         if guild.voice_client == None or guild.voice_client.channel == None:
             await inter.user.voice.channel.connect()
+            if guild not in self.audioVolume:
+                self.audioVolume[guild] = 100
         elif guild.voice_client.channel != inter.user.voice.channel:
             await guild.change_voice_state(channel=inter.user.voice.channel)
         
@@ -149,6 +152,7 @@ class SoundboardCommands(commands.Cog):
             self.audioClients[guild] = utils.audio_player.AudioPlayer(guild.voice_client,
                                                                       self.encoder)
             self.audioClients[guild].start()
+            self
 
         self.audioClients[guild].add_to_source_queue(pydub.AudioSegment.from_file(filename), inter.user)
         print("finished sending sound")
@@ -330,6 +334,13 @@ class SoundboardCommands(commands.Cog):
                 await inter.followup.send(view=view)
             else:
                 await inter.response.send_message(view=view)
+
+    @app_commands.command(name="soundboard_volume", description="Set volume of soundboard")
+    async def set_soundboard_volume(self, inter: discord.Interaction, volume: int):
+        self.audioVolume[inter.guild] = volume
+        if inter.guild in self.audioClients and self.audioClients[inter.guild] is not None:
+            self.audioClients[inter.guild].set_volume(volume)
+        await inter.response.send_message(f"Set volume to {self.audioVolume[inter.guild]}");
 
 
 

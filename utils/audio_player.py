@@ -4,6 +4,7 @@ import logging
 import threading
 import time
 from typing import Any, Callable, Generic, IO, List, Optional, TYPE_CHECKING, Tuple, TypeVar, Union
+import math
 
 import discord
 from discord import AudioSource, VoiceClient
@@ -49,6 +50,8 @@ class AudioPlayer(threading.Thread):
 
         self.userDict = {}
 
+        self.volume:int = 100
+
     def _do_run(self) -> None:
         # getattr lookup speed ups
         client = self.client
@@ -93,6 +96,8 @@ class AudioPlayer(threading.Thread):
                     newLoopStarted = True
                     self._items_in_queue.clear()
                 
+            # Set volume of output
+            data = data.apply_gain(20*math.log10(self.volume/100)) #i forgor if its -20 or -10
             data = bytes(data.raw_data)
             if not data:
                 self.send_silence()
@@ -168,3 +173,6 @@ class AudioPlayer(threading.Thread):
         self.userDict = dict(sorted(self.userDict.items(), key=lambda item: len(item[1])))
         self._items_in_queue.set()
         return True
+    
+    def set_volume(self, volume: int):
+        self.volume = volume
