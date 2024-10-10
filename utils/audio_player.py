@@ -12,8 +12,9 @@ from discord.errors import ClientException
 from discord.opus import Encoder as OpusEncoder, OPUS_SILENCE
 from discord.oggparse import OggStream
 from discord.utils import MISSING
-
+from pydub import AudioSegment
 import pydub
+import traceback
 
 _log = logging.getLogger(__name__)
 
@@ -45,7 +46,6 @@ class AudioPlayer(threading.Thread):
             raise TypeError('Expected a callable for the "after" parameter.')
         
         self.encoder = encoder
-        self.soundQueue:pydub.AudioSegment = None
 
         self.userDict = {}
 
@@ -69,26 +69,31 @@ class AudioPlayer(threading.Thread):
                 newLoopStarted = False
             data = None
             with self._lock:
-                if self.soundQueue != None:
-                    readLen = min(self.FRAME_SIZE, len(self.soundQueue.raw_data))
-                    frame = bytearray(self.FRAME_SIZE)
-                    frame[0:readLen] = self.soundQueue.raw_data[0:readLen] #3840 for 20ms, 16 bit, 48khz for one frame
-                    data = bytes(frame)
-                    if readLen < self.FRAME_SIZE:
-                        self.soundQueue = None
-                        self._items_in_queue.clear()
-                        newLoopStarted = True
-                    else:
-                        buffer = BytesIO(self.soundQueue.raw_data[readLen:])
-                        buffer.seek(0)
-                        self.soundQueue = pydub.AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=48000)
+                # check if userDict is empty
+                if len(self.userDict) > 0:
+                    data = pydub.AudioSegment.silent(duration=20, frame_rate=OpusEncoder.SAMPLING_RATE)
                     for user in self.userDict.keys():
-                        self.userDict[user] -= self.FRAME_SIZE
-                    self.userDict = {key:val for key, val in self.userDict.items() if val > 0}
+                        if self.userDict[user] != None:
+                            # use overlay to mix the sounds
+                            readData = min(self.FRAME_SIZE, len(self.userDict[user]))
+                            buffer = BytesIO(self.userDict[user][readData:])
+                            buffer.seek(0)
+                            data = data.overlay(pydub.AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=OpusEncoder.SAMPLING_RATE))
+                            if (len(self.userDict[user]) >= self.FRAME_SIZE):
+                                self.userDict[user] = self.userDict[user][self.FRAME_SIZE:]
+                            else:
+                                self.userDict[user] = None
+                        else:
+                            self.userDict[user] = None
+                    self.userDict = {key:val for key, val in self.userDict.items() if val != None}
+                    if len(self.userDict) == 0:
+                        newLoopStarted = True
+                        self._items_in_queue.clear()
                 else:
+                    newLoopStarted = True
                     self._items_in_queue.clear()
                 
-
+            data = bytes(data.raw_data)
             if not data:
                 self.send_silence()
                 newLoopStarted = True
@@ -117,6 +122,8 @@ class AudioPlayer(threading.Thread):
         try:
             self._do_run()
         except Exception as exc:
+            print("Error in run")
+            print(traceback.format_exc())
             self._current_error = exc
             self.stop()
         finally:
@@ -144,27 +151,20 @@ class AudioPlayer(threading.Thread):
     def current_client(self) -> VoiceClient:
         return self.client
     
-    def add_to_source_queue(self, newSound: pydub.AudioSegment, user: discord.User) -> bool:
+    def add_to_source_queue(self, newSound: AudioSegment, user: discord.User) -> bool:
         if True: #newSound.frame_rate != 48000 or newSound.channels != 2: #sample rate isnt 48 khz stereo, need to convert
             print("file not in 48khz stereo, converting")
             newSound = newSound.set_sample_width(2).set_channels(2).set_frame_rate(48000)
             buffer = BytesIO()
             newSound.export(buffer, format="s16le", parameters=["-ac", "2", "-ar", "48000"])
             buffer.seek(0)
-            newSound = pydub.AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=48000)
+            newSound = AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=48000)
         print("Waiting to overlay")
-        with self._lock:
-            print(self.userDict)
-            if user.id in self.userDict and self.userDict[user.id] != None:
-                print("REJECTING USER REQUEST, ALREADY PLAYING")
-                return False
-            self.userDict[user.id] = len(newSound.raw_data)
-            if self.soundQueue == None:
-                self.soundQueue = newSound
-            else:
-                if len(self.soundQueue) > len(newSound):
-                    self.soundQueue = self.soundQueue.overlay(newSound)
-                else:
-                    self.soundQueue = newSound.overlay(self.soundQueue)
-            self._items_in_queue.set()
+        # with self._lock:
+        print(self.userDict.keys())
+        # userId = round(time.time())
+        self.userDict[user.id] = newSound.raw_data
+        # sort it based on length
+        self.userDict = dict(sorted(self.userDict.items(), key=lambda item: len(item[1])))
+        self._items_in_queue.set()
         return True
