@@ -348,8 +348,10 @@ class SoundboardCommands(commands.Cog):
         
     @commands.Cog.listener()
     async def on_interaction(self, inter: discord.Interaction):
-        print(inter.data)
-        await self.playSoundCallback(inter)
+        if "custom_id" not in inter.data:
+            return
+        if inter.data["custom_id"].startswith("soundboard_sound_"):
+            await self.playSoundCallback(inter)
 
 
 async def setup(bot):

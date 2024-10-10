@@ -57,5 +57,6 @@ async def setup_hook():
     # for extension in extension_names:
     #     await bot.load_extension(extension)
     await bot.load_extension("commands.soundboard")
+    await bot.load_extension("commands.extras")
 
 bot.run(TOKEN)
