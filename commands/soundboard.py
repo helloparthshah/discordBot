@@ -1,7 +1,3 @@
-import asyncio
-import io
-import time
-import traceback
 import typing
 import discord
 from discord import app_commands
@@ -319,7 +315,6 @@ class SoundboardCommands(commands.Cog):
                 emoji=sound['emoji'],
                 custom_id="soundboard_sound_"+sound['_id']
             )
-            button.callback = self.playSoundCallback
             buttons.append(button)
         if (len(buttons) == 0):
             await inter.response.send_message("No sounds available")
@@ -350,6 +345,11 @@ class SoundboardCommands(commands.Cog):
         self.audioVolume[inter.guild] = volume
         if inter.guild in self.audioClients and self.audioClients[inter.guild] is not None:
             self.audioClients[inter.guild].set_volume(volume)
+        
+    @commands.Cog.listener()
+    async def on_interaction(self, inter: discord.Interaction):
+        print(inter.data)
+        await self.playSoundCallback(inter)
 
 
 async def setup(bot):
