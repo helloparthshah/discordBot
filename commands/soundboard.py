@@ -152,7 +152,7 @@ class SoundboardCommands(commands.Cog):
             self.audioClients[guild] = utils.audio_player.AudioPlayer(guild.voice_client,
                                                                       self.encoder)
             self.audioClients[guild].start()
-            self
+            self.set_soundboard_volume(self.audioVolume[guild])
 
         self.audioClients[guild].add_to_source_queue(pydub.AudioSegment.from_file(filename), inter.user)
         print("finished sending sound")
@@ -337,10 +337,13 @@ class SoundboardCommands(commands.Cog):
 
     @app_commands.command(name="soundboard_volume", description="Set volume of soundboard")
     async def set_soundboard_volume(self, inter: discord.Interaction, volume: int):
+        if volume < 1 or volume > 100:
+            await inter.response.send_message("\U0000274C Volume must be between 1 and 100")
+            return
         self.audioVolume[inter.guild] = volume
         if inter.guild in self.audioClients and self.audioClients[inter.guild] is not None:
             self.audioClients[inter.guild].set_volume(volume)
-        await inter.response.send_message(f"Set volume to {self.audioVolume[inter.guild]}");
+        await inter.response.send_message(f"Set soundboard volume to {self.audioVolume[inter.guild]}")
 
 
 
