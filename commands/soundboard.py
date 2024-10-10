@@ -17,11 +17,12 @@ import pydub
 import utils
 import utils.audio_player
 
+
 class BaseView(discord.ui.View):
     interaction: discord.Interaction | None = None
     message: discord.Message | None = None
 
-    def __init__(self,timeout: float = None):
+    def __init__(self, timeout: float = None):
         super().__init__(timeout=timeout)
 
     # make sure that the view only processes interactions from the user who invoked the command
@@ -145,22 +146,22 @@ class SoundboardCommands(commands.Cog):
                 self.audioVolume[guild] = 100
         elif guild.voice_client.channel != inter.user.voice.channel:
             await guild.change_voice_state(channel=inter.user.voice.channel)
-        
+
         if (guild not in self.audioClients.keys() or
                 self.audioClients[guild] == None or
                 self.audioClients[guild].current_client() != guild.voice_client):
             self.audioClients[guild] = utils.audio_player.AudioPlayer(guild.voice_client,
                                                                       self.encoder)
             self.audioClients[guild].start()
-            self.set_soundboard_volume(self.audioVolume[guild])
+            self.set_soundboard_volume(inter, self.audioVolume[guild])
 
-        self.audioClients[guild].add_to_source_queue(pydub.AudioSegment.from_file(filename), inter.user)
+        self.audioClients[guild].add_to_source_queue(
+            pydub.AudioSegment.from_file(filename), inter.user)
         print("finished sending sound")
-        
 
     @app_commands.command(name="add_sound", description="Add a sound to the soundboard")
-    @app_commands.describe(name="The name of the sound", 
-                           emoji="The emoji to use for the sound", 
+    @app_commands.describe(name="The name of the sound",
+                           emoji="The emoji to use for the sound",
                            sound="The sound to add")
     async def add_sound(self, inter: discord.Interaction, name: str, emoji: str, sound: discord.Attachment):
         if not inter.user.guild_permissions.create_expressions:
@@ -185,7 +186,7 @@ class SoundboardCommands(commands.Cog):
         self.soundboardCollection.update_one(
             {"_id": soundId}, soundboardRow, upsert=True)
         await inter.followup.send("Added sound "+name)
-    
+
     @app_commands.command(name="add_sound_url", description="Add a sound to the soundboard")
     @app_commands.describe(name="The name of the sound", emoji="The emoji to use for the sound", url="The sound to add")
     async def add_sound_url(self, inter: discord.Interaction, name: str, emoji: str, url: str):
@@ -211,15 +212,17 @@ class SoundboardCommands(commands.Cog):
         sounds = self.soundboardCollection.find(
             {"server": inter.guild_id, "name": {"$regex": current, "$options": "i"}})
         choices = []
-        for sound in sounds:
+        # max 25 choices
+        for sound in sounds.limit(25):
             choices.append(
-                {"name": sound["name"], "value": sound["name"]})
+                app_commands.Choice[str](name=sound["name"], value=sound["name"]))
         return choices
 
     async def autocomplete_emoji(self, inter: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
+        print(inter.namespace)
         sound = self.soundboardCollection.find_one(
-            {"server": inter.guild_id, "name": current})
-        return [{"name": sound["emoji"], "value": sound["emoji"]}]
+            {"server": inter.guild_id, "name": inter.namespace.name})
+        return [app_commands.Choice[str](name=sound["emoji"], value=sound["emoji"])]
 
     @app_commands.command(name="update_sound_url", description="Update a sound on the soundboard")
     @app_commands.describe(name="The name of the sound to update", emoji="The emoji to use for the sound", url="Link to the sound")
@@ -250,7 +253,7 @@ class SoundboardCommands(commands.Cog):
         if os.path.exists(filename):
             os.remove(filename)
         await inter.response.send_message("Updated sound "+name)
-    
+
     @app_commands.command(name="update_sound", description="Update a sound on the soundboard")
     @app_commands.describe(name="The name of the sound to update", emoji="The emoji to use for the sound", sound="The sound to add")
     @app_commands.autocomplete(name=autocomplete_name)
@@ -282,7 +285,7 @@ class SoundboardCommands(commands.Cog):
         filename = "sounds/"+soundId+"."+ext
         if os.path.exists(filename):
             os.remove(filename)
-        await inter.response.send_message("Updated sound "+name)
+        await inter.followup.send("Updated sound "+name)
 
     @app_commands.command(name="remove_sound", description="Remove a sound from the soundboard")
     @app_commands.describe(name="The name of the sound to remove")
@@ -294,7 +297,7 @@ class SoundboardCommands(commands.Cog):
         await inter.response.defer()
         soundId = name.lower()+"_"+str(inter.guild_id)
         self.soundboardCollection.delete_one({"_id": soundId})
-        await inter.response.send_message("Removed sound "+name)
+        await inter.followup.send("Removed sound "+name)
 
     async def playSoundCallback(self, interaction: discord.Interaction):
         await interaction.response.defer()
@@ -322,10 +325,10 @@ class SoundboardCommands(commands.Cog):
             await inter.response.send_message("No sounds available")
             return
         embed = discord.Embed(title="Soundboard", color=0x00ff00,
-                      description="Choose a sound to play")
+                              description="Choose a sound to play")
         # can only have 25 buttons per message
         buttonGroups = [buttons[i:i + 25] for i in range(0, len(buttons), 25)]
-        
+
         for buttonGroup in buttonGroups:
             view = BaseView()
             for button in buttonGroup:
@@ -336,20 +339,23 @@ class SoundboardCommands(commands.Cog):
                 await inter.response.send_message(view=view)
 
     @app_commands.command(name="soundboard_volume", description="Set volume of soundboard")
-    async def set_soundboard_volume(self, inter: discord.Interaction, volume: int):
+    async def update_soundboard_volume(self, inter: discord.Interaction, volume: int):
         if volume < 1 or volume > 100:
             await inter.response.send_message("\U0000274C Volume must be between 1 and 100")
             return
+        self.set_soundboard_volume(inter, volume)
+        await inter.response.send_message(f"Set soundboard volume to {self.audioVolume[inter.guild]}")
+
+    def set_soundboard_volume(self, inter: discord.Interaction, volume: int):
         self.audioVolume[inter.guild] = volume
         if inter.guild in self.audioClients and self.audioClients[inter.guild] is not None:
             self.audioClients[inter.guild].set_volume(volume)
-        await inter.response.send_message(f"Set soundboard volume to {self.audioVolume[inter.guild]}")
-
 
 
 async def setup(bot):
     print("Adding soundboard")
     await bot.add_cog(SoundboardCommands(bot))
+
 
 async def teardown(bot):
     print("Unloaded Soundboard")
