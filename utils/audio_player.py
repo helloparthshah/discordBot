@@ -13,7 +13,7 @@ from discord.errors import ClientException
 from discord.opus import Encoder as OpusEncoder, OPUS_SILENCE
 from discord.oggparse import OggStream
 from discord.utils import MISSING
-from pydub import AudioSegment
+from pydub import AudioSegment, effects
 import pydub
 import traceback
 
@@ -164,6 +164,7 @@ class AudioPlayer(threading.Thread):
             newSound.export(buffer, format="s16le", parameters=["-ac", "2", "-ar", "48000"])
             buffer.seek(0)
             newSound = AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=48000)
+            newSound = effects.normalize(newSound)
         print("Waiting to overlay")
         # with self._lock:
         print(self.userDict.keys())
