@@ -20,6 +20,7 @@ _log = logging.getLogger(__name__)
 
 class AudioPlayer(threading.Thread):
     DELAY: float = OpusEncoder.FRAME_LENGTH / 1000.0
+    FRAME_SIZE: int = OpusEncoder.FRAME_SIZE
 
     def __init__(
         self,
@@ -69,11 +70,11 @@ class AudioPlayer(threading.Thread):
             data = None
             with self._lock:
                 if self.soundQueue != None:
-                    readLen = min(3840, len(self.soundQueue.raw_data))
-                    frame = bytearray(3840)
+                    readLen = min(self.FRAME_SIZE, len(self.soundQueue.raw_data))
+                    frame = bytearray(self.FRAME_SIZE)
                     frame[0:readLen] = self.soundQueue.raw_data[0:readLen] #3840 for 20ms, 16 bit, 48khz for one frame
                     data = bytes(frame)
-                    if readLen < 3840:
+                    if readLen < self.FRAME_SIZE:
                         self.soundQueue = None
                         self._items_in_queue.clear()
                         newLoopStarted = True
@@ -82,7 +83,7 @@ class AudioPlayer(threading.Thread):
                         buffer.seek(0)
                         self.soundQueue = pydub.AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=48000)
                     for user in self.userDict.keys():
-                        self.userDict[user] -= 3840
+                        self.userDict[user] -= self.FRAME_SIZE
                     self.userDict = {key:val for key, val in self.userDict.items() if val > 0}
                 else:
                     self._items_in_queue.clear()
@@ -108,8 +109,7 @@ class AudioPlayer(threading.Thread):
 
             opusData = self.encoder.encode(data, self.encoder.SAMPLES_PER_FRAME)
             play_audio(opusData, encode=False)
-            next_time = startTimer + self.DELAY * loops
-            delay = max(0, self.DELAY + (next_time - time.perf_counter()))
+            delay = max(0, startTimer + (self.DELAY * loops - time.perf_counter()))
             time.sleep(delay)
             
 
