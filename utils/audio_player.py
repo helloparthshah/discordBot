@@ -3,16 +3,14 @@ from io import BytesIO
 import logging
 import threading
 import time
-from typing import Any, Callable, Generic, IO, List, Optional, TYPE_CHECKING, Tuple, TypeVar, Union
+from typing import Any, Callable, Optional
 import math
+import typing
 
 import discord
-from discord import AudioSource, VoiceClient
+from discord import Guild, VoiceClient
 from discord.enums import SpeakingState
-from discord.errors import ClientException
 from discord.opus import Encoder as OpusEncoder, OPUS_SILENCE
-from discord.oggparse import OggStream
-from discord.utils import MISSING
 from pydub import AudioSegment, effects
 import pydub
 import traceback
@@ -156,7 +154,7 @@ class AudioPlayer(threading.Thread):
     def current_client(self) -> VoiceClient:
         return self.client
     
-    def add_to_source_queue(self, newSound: AudioSegment, user: discord.User) -> bool:
+    def add_to_source_queue(self, newSound: AudioSegment, user: str) -> bool:
         if True: #newSound.frame_rate != 48000 or newSound.channels != 2: #sample rate isnt 48 khz stereo, need to convert
             print("file not in 48khz stereo, converting")
             newSound = newSound.set_sample_width(2).set_channels(2).set_frame_rate(48000)
@@ -169,7 +167,7 @@ class AudioPlayer(threading.Thread):
         # with self._lock:
         print(self.userDict.keys())
         # userId = round(time.time())
-        self.userDict[user.id] = newSound.raw_data
+        self.userDict[user] = newSound.raw_data
         # sort it based on length
         self.userDict = dict(sorted(self.userDict.items(), key=lambda item: len(item[1])))
         self._items_in_queue.set()
@@ -177,3 +175,41 @@ class AudioPlayer(threading.Thread):
     
     def set_volume(self, volume: int):
         self.volume = volume
+
+audioClients: typing.Dict[str, AudioPlayer] = {}
+audioVolume = {}
+encoder = discord.opus.Encoder(
+    application='audio',
+    bitrate=128,
+    fec=True,
+    expected_packet_loss=0.15,
+    bandwidth='full',
+    signal_type='auto',
+)
+
+async def play(inter: discord.Interaction, sound: AudioSegment, identifier):
+    guild = inter.guild
+    if not inter.user.voice:
+        return
+    if guild.voice_client == None or guild.voice_client.channel == None:
+        await inter.user.voice.channel.connect()
+    elif guild.voice_client.channel != inter.user.voice.channel:
+        await guild.change_voice_state(channel=inter.user.voice.channel)
+    if guild not in audioVolume:
+            audioVolume[guild] = 100
+    if (guild not in audioClients.keys() or
+            audioClients[guild] == None or
+            audioClients[guild].current_client() != guild.voice_client):
+        audioClients[guild] = AudioPlayer(guild.voice_client, encoder)
+        audioClients[guild].start()
+        # set volume to already set volume
+        set_volume(inter, audioVolume[guild])
+    
+    audioClients[guild].add_to_source_queue(sound, identifier)
+        
+
+def set_volume(inter: discord.Interaction, volume: int):
+    guild = inter.guild
+    audioVolume[guild] = volume
+    if guild in audioClients.keys() and audioClients[guild] != None:
+        audioClients[guild].set_volume(volume)

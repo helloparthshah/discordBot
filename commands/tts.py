@@ -1,17 +1,20 @@
-from interactions import AutocompleteContext, Extension, File, OptionType, slash_command, slash_option
 import os
+import discord
 from dotenv import load_dotenv
-from interactions import SlashContext
+import pydub
 import requests
-from interactions.api.voice.audio import AudioVolume
+from utils.audio_player import play, set_volume
+from discord import File, app_commands
+from discord.ext import commands
 
-
-class TTSCommands(Extension):
+class TTSCommands(commands.Cog):
     def __init__(self, bot):
+        self.bot = bot
         load_dotenv()
         self.PLAY_HT_KEY = os.getenv('PLAY_HT_KEY')
         self.PLAY_HT_APP_ID = os.getenv('PLAY_HT_APP_ID')
         self.cloned_voices = []
+        self.fetch_voices()
 
     async def async_start(self):
         self.fetch_voices()
@@ -26,28 +29,29 @@ class TTSCommands(Extension):
         response = requests.get(url, headers=headers)
         self.cloned_voices = response.json()
 
-    @slash_command(name="update_voices", description="Update the list of voices")
-    async def update_voices(self, ctx: SlashContext):
-        await ctx.defer()
+    @app_commands.command(name="update_voices", description="Update the list of voices")
+    async def update_voices(self, inter: discord.Interaction):
+        await inter.response.defer()
         self.fetch_voices()
-        await ctx.send("Voices updated")
+        await inter.followup.send("Voices updated")
+    
+    async def autocomplete_voice(self, inter: discord.Interaction, current: str):
+        choices = []
+        for voice in self.cloned_voices:
+             choices.append(
+                 app_commands.Choice[str](
+                name = voice['name'],
+                value = voice['id']))
+        return choices
 
-    @slash_command(name="tts", description="Text to speech")
-    @slash_option(
-        name="text",
-        description="String Option",
-        required=True,
-        opt_type=OptionType.STRING,
+    @app_commands.command(name="tts", description="Text to speech")
+    @app_commands.describe(
+        text = "String Option",
+        voice = "The voice to use"
     )
-    @slash_option(
-        name="voice",
-        description="The voice to use",
-        required=False,
-        opt_type=OptionType.STRING,
-        autocomplete=True
-    )
-    async def tts(self, ctx=SlashContext, *, text: str, voice: str = "s3://voice-cloning-zero-shot/29652fa7-7a8c-4162-a69a-509d2b6bfc05/Harshil/manifest.json"):
-        await ctx.defer()
+    @app_commands.autocomplete(voice=autocomplete_voice)
+    async def tts(self, inter: discord.Interaction, text: str, voice: str = "s3://voice-cloning-zero-shot/29652fa7-7a8c-4162-a69a-509d2b6bfc05/Harshil/manifest.json"):
+        await inter.response.defer()
         url = "https://api.play.ht/api/v2/tts/stream"
         payload = {
             "text": text,
@@ -70,35 +74,17 @@ class TTSCommands(Extension):
             # save the audio file
             with open('tts.mp3', 'wb') as f:
                 f.write(response.content)
-            audio = AudioVolume('tts.mp3')
-            await ctx.send(file=File('tts.mp3'))
-            if (not ctx.author.voice):
-                return
-            if ctx.guild_id == ctx.author.voice.channel.guild.id:
-                if not ctx.voice_state:
-                    await ctx.author.voice.channel.connect()
-                else:
-                    await ctx.voice_state.move(ctx.author.voice.channel)
-                await ctx.voice_state.play(audio)
+            await inter.followup.send(file=File('tts.mp3'))
+            audio = pydub.AudioSegment.from_file('tts.mp3')
+            await play(inter, audio, inter.user.id)
         else:
-            await ctx.send("Error: "+str(response.status_code))
-
-    @tts.autocomplete("voice")
-    async def autocomplete(self, ctx: AutocompleteContext):
-        string_option_input = ctx.input_text  # can be empty/None
-        # you can use ctx.kwargs.get("name") to get the current state of other options - note they can be empty too
-
-        # make sure you respond within three seconds
-        choices = []
-        for voice in self.cloned_voices:
-            choices.append({
-                "name": voice['name'],
-                "value": voice['id']
-            })
-        await ctx.send(
-            choices=choices
-        )
+            await inter.followup.send("Error: "+str(response.status_code))
 
 
-def setup(bot):
-    TTSCommands(bot)
+async def setup(bot):
+    print("Adding TTSCommands")
+    await bot.add_cog(TTSCommands(bot))
+
+
+async def teardown(bot):
+    print("Unloaded TTSCommands")

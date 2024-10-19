@@ -12,6 +12,7 @@ import pydub
 
 import utils
 import utils.audio_player
+from utils.audio_player import play, set_volume
 
 
 class BaseView(discord.ui.View):
@@ -75,21 +76,6 @@ class SoundboardCommands(commands.Cog):
         database = MongoDbClient["discord-bot"]
         self.soundboardCollection = database["soundboard"]
 
-        # Create encoder
-        if not discord.opus.is_loaded:
-            discord.opus.load_opus()
-        self.encoder = discord.opus.Encoder(
-            application='audio',
-            bitrate=128,
-            fec=True,
-            expected_packet_loss=0.15,
-            bandwidth='full',
-            signal_type='auto',
-        )
-
-        self.audioClients = {}
-        self.audioVolume = {}
-
     def saveFile(self, url, id):
         if not os.path.exists("sounds"):
             os.makedirs("sounds")
@@ -135,24 +121,7 @@ class SoundboardCommands(commands.Cog):
                 filename = self.saveFile(url, id)
         # join the voice channel and play the audio
 
-        guild = inter.guild
-        if guild.voice_client == None or guild.voice_client.channel == None:
-            await inter.user.voice.channel.connect()
-            if guild not in self.audioVolume:
-                self.audioVolume[guild] = 100
-        elif guild.voice_client.channel != inter.user.voice.channel:
-            await guild.change_voice_state(channel=inter.user.voice.channel)
-
-        if (guild not in self.audioClients.keys() or
-                self.audioClients[guild] == None or
-                self.audioClients[guild].current_client() != guild.voice_client):
-            self.audioClients[guild] = utils.audio_player.AudioPlayer(guild.voice_client,
-                                                                      self.encoder)
-            self.audioClients[guild].start()
-            self.set_soundboard_volume(inter, self.audioVolume[guild])
-
-        self.audioClients[guild].add_to_source_queue(
-            pydub.AudioSegment.from_file(filename), inter.user)
+        await play(inter, pydub.AudioSegment.from_file(filename), inter.user.id)
         print("finished sending sound")
 
     @app_commands.command(name="add_sound", description="Add a sound to the soundboard")
@@ -248,7 +217,7 @@ class SoundboardCommands(commands.Cog):
         filename = "sounds/"+soundId+"."+ext
         if os.path.exists(filename):
             os.remove(filename)
-        await inter.response.send_message("Updated sound "+name)
+        await inter.followup.send("Updated sound "+name)
 
     @app_commands.command(name="update_sound", description="Update a sound on the soundboard")
     @app_commands.describe(name="The name of the sound to update", emoji="The emoji to use for the sound", sound="The sound to add")
@@ -333,18 +302,16 @@ class SoundboardCommands(commands.Cog):
             else:
                 await inter.response.send_message(view=view)
 
-    @app_commands.command(name="soundboard_volume", description="Set volume of soundboard")
-    async def update_soundboard_volume(self, inter: discord.Interaction, volume: int):
+    @app_commands.command(name="volume", description="Set volume of music player")
+    async def update_volume(self, inter: discord.Interaction, volume: int):
         if volume < 1 or volume > 100:
             await inter.response.send_message("\U0000274C Volume must be between 1 and 100")
             return
         self.set_soundboard_volume(inter, volume)
-        await inter.response.send_message(f"Set soundboard volume to {self.audioVolume[inter.guild]}")
+        await inter.response.send_message(f"Set soundboard volume to {volume}")
 
     def set_soundboard_volume(self, inter: discord.Interaction, volume: int):
-        self.audioVolume[inter.guild] = volume
-        if inter.guild in self.audioClients and self.audioClients[inter.guild] is not None:
-            self.audioClients[inter.guild].set_volume(volume)
+        set_volume(inter, volume)
         
     @commands.Cog.listener()
     async def on_interaction(self, inter: discord.Interaction):
