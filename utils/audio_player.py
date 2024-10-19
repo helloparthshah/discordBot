@@ -56,7 +56,10 @@ class AudioPlayer(threading.Thread):
         with self._lock:
             # check if userDict is empty
             if len(self.userDict) > 0:
-                data = pydub.AudioSegment.silent(duration=20, frame_rate=OpusEncoder.SAMPLING_RATE)
+                silent_data = data = b"\0\0" * self.FRAME_SIZE
+                silent_data = BytesIO(silent_data)
+                data = pydub.AudioSegment.from_raw(silent_data, sample_width=2, channels=2, frame_rate=OpusEncoder.SAMPLING_RATE)
+                # data = pydub.AudioSegment.silent(duration=20, frame_rate=OpusEncoder.SAMPLING_RATE)
                 for user in self.userDict.keys():
                     if self.userDict[user] != None:
                         # use overlay to mix the sounds
