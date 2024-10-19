@@ -50,6 +50,7 @@ class AudioPlayer(threading.Thread):
         self.pausedUserDict = {}
 
         self.volume:int = 100
+        self._playing: threading.Event = threading.Event()
     
     def readNext(self):
         with self._lock:
@@ -115,15 +116,16 @@ class AudioPlayer(threading.Thread):
                 self.send_silence()
                 newLoopStarted = True
                 continue
-
-            opusData = self.encoder.encode(data, self.encoder.SAMPLES_PER_FRAME)
-            play_audio(opusData, encode=False)
+            else:
+                opusData = self.encoder.encode(data, self.encoder.SAMPLES_PER_FRAME)
+                play_audio(opusData, encode=False)
             delay = max(0, startTimer + (self.DELAY * loops - time.perf_counter()))
             time.sleep(delay)
             
 
     def run(self) -> None:
         try:
+            self._playing.set()
             self._do_run()
         except Exception as exc:
             print("Error in run")
@@ -131,6 +133,7 @@ class AudioPlayer(threading.Thread):
             self._current_error = exc
             self.stop()
         finally:
+            self._playing.clear()
             #self._call_after()
             #self.source.cleanup()
             pass
@@ -204,7 +207,9 @@ class AudioPlayer(threading.Thread):
             # sort it based on length
             self.userDict = dict(sorted(self.userDict.items(), key=lambda item: len(item[1])))
             self._items_in_queue.set()
-        return True
+        if self._playing.is_set():
+            return True
+        self.start()
     
     def set_volume(self, volume: int):
         self.volume = volume
