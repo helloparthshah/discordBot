@@ -165,6 +165,9 @@ class AudioPlayer(threading.Thread):
                 self.pausedUserDict.pop(user)
                 self.userDict = dict(sorted(self.userDict.items(), key=lambda item: len(item[1])))
                 self._items_in_queue.set()
+        if self._playing.is_set():
+            return True
+        self.start()
 
     def _speak(self, speaking: SpeakingState) -> None:
         try:
