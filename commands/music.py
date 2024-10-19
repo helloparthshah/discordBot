@@ -1,14 +1,41 @@
+import asyncio
+import typing
 from youtube_search import YoutubeSearch
-from interactions.api.voice.audio import AudioVolume
 from pytubefix import YouTube
-from interactions import Extension, OptionType, slash_command, slash_option
-from interactions import AutocompleteContext, SlashContext, Embed, listen
-from interactions import Button, ButtonStyle, ActionRow
 import os
 import discord
-from interactions.api.events import Component
+from discord import Embed, app_commands
+from discord.ext import commands
+from utils.audio_player import play, is_playing, stop_user, pause_user, resume_user
+from pydub import AudioSegment
+from discord.ui.select import BaseSelect
 
 music_queue = {}
+
+class BaseView(discord.ui.View):
+    interaction: discord.Interaction | None = None
+    message: discord.Message | None = None
+
+    def __init__(self, timeout: float = None):
+        super().__init__(timeout=timeout)
+
+    def _disable_all(self) -> None:
+        for item in self.children:
+            if isinstance(item, discord.ui.Button) or isinstance(item, BaseSelect):
+                item.disabled = True
+
+    async def _edit(self, **kwargs: typing.Any) -> None:
+        if self.interaction is None and self.message is not None:
+            await self.message.edit(**kwargs)
+        elif self.interaction is not None:
+            try:
+                await self.interaction.response.edit_message(**kwargs)
+            except discord.InteractionResponded:
+                await self.interaction.edit_original_response(**kwargs)
+
+    async def on_timeout(self) -> None:
+        self._disable_all()
+        await self._edit(view=self)
 
 
 class MusicQueueSong:
@@ -17,35 +44,43 @@ class MusicQueueSong:
         self.yt = YouTube(url)
 
 
-class MusicCommands(Extension):
-    @slash_command(name="play", description="play a song!")
-    @slash_option(
-        name="link",
-        description="The song to play",
-        required=True,
-        opt_type=OptionType.STRING,
-        autocomplete=True
+class MusicCommands(commands.Cog):
+    async def autocomplete_link(self,  inter: discord.Interaction, current: str):
+        string_option_input = current
+        if not string_option_input or len(string_option_input) < 3:
+            return []
+        results = self.search_youtube(string_option_input)
+        choices = []
+        for result in results:
+            choices.append(
+                app_commands.Choice[str](name=result['title'],
+                                         value='https://www.youtube.com'+result['url_suffix']))
+        return choices
+    
+    @app_commands.command(name="play", description="play a song!")
+    @app_commands.describe(
+        link="The song to play"
     )
-    async def play(self, ctx: SlashContext, *, link: str):
-        await ctx.defer()
-        if not ctx.voice_state:
-            await ctx.author.voice.channel.connect()
+    @app_commands.autocomplete(link=autocomplete_link)
+    async def play(self, inter: discord.Interaction, link: str):
+        await inter.response.defer()
 
         # check if link is a youtube link
         if "youtube.com" not in link:
             link = self.search_youtube(link)[0]['url_suffix']
 
-        music_queue[ctx.guild_id] = music_queue.get(ctx.guild_id, [])
-        music_queue[ctx.guild_id].append(MusicQueueSong(link))
+        music_queue[inter.guild.id] = music_queue.get(inter.guild.id, [])
+        music_queue[inter.guild.id].append(MusicQueueSong(link))
 
         # add to queue if already playing
-        if ctx.voice_state.playing:
-            return await ctx.send(f"Added {link} to the queue")
+        if is_playing(inter, "test"):
+            print("Playing next")
+            return await inter.followup.send(f"Added {link} to the queue")
 
-        await self.play_next(ctx)
+        await self.play_next(inter)
 
-    async def play_next(self, ctx: SlashContext):
-        current_song = music_queue[ctx.guild_id].pop(0)
+    async def play_next(self,  inter: discord.Interaction):
+        current_song = music_queue[inter.guild.id].pop(0)
 
         # yt = YouTube(current_song)
         yt = current_song.yt
@@ -55,201 +90,147 @@ class MusicCommands(Extension):
         out_file = video.download(output_path='.')
 
         # Get the audio using YTDL
-        audio = AudioVolume(out_file)
+        audio = AudioSegment.from_file(out_file)
         # create a player using embed
         embed = Embed(title="Now Playing", color=0x00ff00)
         embed.add_field(name="Title", value=yt.title, inline=False)
         embed.add_field(name="Duration", value=yt.length, inline=False)
         embed.set_thumbnail(url=yt.thumbnail_url)
         # add buttons to skip, pause, resume, stop
-        await ctx.send(embed=embed, components=[
-            ActionRow(
-                Button(
-                    style=ButtonStyle.GREY,
-                    emoji="⏸",
-                    custom_id="pause"
-                ),
-                Button(
-                    style=ButtonStyle.GREY,
-                    emoji="⏹",
-                    custom_id="stop"
-                ),
-                Button(
-                    style=ButtonStyle.GREY,
-                    emoji="⏭",
-                    custom_id="skip"
-                ),
-            )
-        ])
+        view = BaseView()
+        view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Pause",
+                                        emoji="⏸",
+                                        custom_id="pause"))
+        view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Stop", 
+                                        emoji="⏹",
+                                        custom_id="stop"))
+        view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Skip", 
+                                        emoji="⏭",
+                                        custom_id="skip"))
+        await inter.followup.send(embed=embed, view=view)
 
-        await ctx.voice_state.play(audio)
+        await play(inter, audio, "test")
+        while is_playing(inter, "test"):
+            await asyncio.sleep(1)
+        print("Playing next")
         # delete the file
         os.remove(out_file)
-        if len(music_queue[ctx.guild_id]) > 0:
-            await self.play_next(ctx)
+        if len(music_queue[inter.guild.id]) > 0:
+            await self.play_next(inter)
 
-    @slash_command(name="skip", description="Skip the current song")
-    async def skip(self, ctx: SlashContext):
-        await ctx.send("Skipping the current song")
-        await self.skip_current(ctx)
+    @app_commands.command(name="skip", description="Skip the current song")
+    async def skip(self, inter: discord.Interaction):
+        await inter.response.defer()
+        await inter.followup.send("Skipping the current song")
+        await self.skip_current(inter)
 
-    async def skip_current(self, ctx: SlashContext):
-        if not ctx.voice_state:
-            return await ctx.send('Not connected to any voice channel')
-        if len(music_queue[ctx.guild_id]) == 0:
-            return await ctx.send('No songs in queue')
-        await ctx.voice_state.stop()
-
-    @play.autocomplete("link")
-    async def autocomplete(self, ctx: AutocompleteContext):
-        string_option_input = ctx.input_text
-        if not string_option_input or len(string_option_input) < 3:
-            return await ctx.send(choices=[])
-        results = self.search_youtube(string_option_input)
-        choices = []
-        for result in results:
-            choices.append({
-                "name": result['title'],
-                "value": 'https://www.youtube.com'+result['url_suffix']
-            })
-        await ctx.send(
-            choices=choices
-        )
+    async def skip_current(self, inter: discord.Interaction):
+        await inter.response.defer()
+        if inter.guild.id not in music_queue or len(music_queue[inter.guild.id]) == 0:
+            return await inter.followup.send('No songs in queue')
+        stop_user(inter, "test")
 
     def search_youtube(self, query):
         return YoutubeSearch(query, max_results=5).to_dict()
 
-    @slash_command(name="queue", description="Show the current queue")
-    async def queue(self, ctx: SlashContext):
-        if len(music_queue[ctx.guild_id]) == 0:
-            return await ctx.send('No songs in queue')
+    @app_commands.command(name="queue", description="Show the current queue")
+    async def queue(self, inter: discord.Interaction):
+        await inter.response.defer()
+        if len(music_queue[inter.guild.id]) == 0:
+            return await inter.followup.send('No songs in queue')
         # create an embed with the current queue
         embed = Embed(title="Queue", color=0x00ff00)
-        for i, song in enumerate(music_queue[ctx.guild_id]):
+        for i, song in enumerate(music_queue[inter.guild.id]):
             embed.add_field(name=f"{i+1}. {song.yt.title}",
                             value=song.yt.length, inline=False)
-        await ctx.send(embed=embed)
+        await inter.followup.send(embed=embed)
 
-    @slash_command(name="stop", description="Stop the audio")
-    async def stop(self, ctx=SlashContext):
-        await ctx.defer()
-        await self.stop_audio(ctx)
+    @app_commands.command(name="stop", description="Stop the audio")
+    async def stop(self, inter: discord.Interaction):
+        await inter.response.defer()
+        await self.stop_audio(inter)
 
-    async def stop_audio(self, ctx: SlashContext):
-        if not ctx.voice_state:
-            return await ctx.send('Not connected to any voice channel')
-        await ctx.voice_state.stop()
+    async def stop_audio(self, inter: discord.Interaction):
+        await inter.response.defer()
+        stop_user(inter, "test")
         # clear the queue
-        music_queue[ctx.guild_id] = []
-        await ctx.send('Stopped the audio')
+        music_queue[inter.guild.id] = []
+        await inter.followup.send('Stopped the audio')
 
-    @slash_command(name="pause", description="Pause the audio")
-    async def pause(self, ctx=SlashContext):
-        await ctx.defer()
-        await self.pause_audio(ctx)
-        await ctx.send('Paused the audio')
+    @app_commands.command(name="pause", description="Pause the audio")
+    async def pause(self, inter: discord.Interaction):
+        await inter.response.defer()
+        await self.pause_audio(inter)
+        await inter.followup.send('Paused the audio')
 
-    async def pause_audio(ctx: SlashContext):
-        if not ctx.voice_state:
-            return await ctx.send('Not connected to any voice channel')
-        ctx.voice_state.pause()
+    async def pause_audio(self, inter: discord.Interaction):
+        await inter.response.defer()
+        pause_user(inter, "test")
 
-    @slash_command(name="resume", description="Resume the audio")
-    async def resume(self, ctx=SlashContext):
-        await ctx.defer()
-        await self.resume_audio(ctx)
-        await ctx.send('Resumed the audio')
+    @app_commands.command(name="resume", description="Resume the audio")
+    async def resume(self, inter: discord.Interaction):
+        await inter.response.defer()
+        await self.resume_audio(inter)
+        await inter.followup.send('Resumed the audio')
 
-    async def resume_audio(self, ctx: SlashContext):
-        if not ctx.voice_state:
-            return await ctx.send('Not connected to any voice channel')
-        ctx.voice_state.resume()
+    async def resume_audio(self, inter: discord.Interaction):
+        await inter.response.defer()
+        if not is_playing(inter, "test"):
+            return await inter.followup.send('No audio to resume')
+        resume_user(inter, "test")
 
-    @slash_command(name="volume", description="Change the volume")
-    @slash_option(
-        name="volume",
-        description="The volume to set",
-        required=True,
-        opt_type=OptionType.INTEGER
+    @app_commands.command(name="play_file", description="Play an audio file")
+    @app_commands.describe(
+        file="Upload file to play",
     )
-    async def volume(self, ctx=SlashContext, *, volume: int):
-        await ctx.defer()
-        if not ctx.voice_state:
-            return await ctx.send('Not connected to any voice channel')
-        ctx.voice_state.volume = volume / 100
-        await ctx.send(f"Volume set to {volume}%")
-
-    @slash_command(name="play_file", description="Play an audio file")
-    @slash_option(
-        name="file",
-        description="Upload file to play",
-        required=True,
-        opt_type=OptionType.ATTACHMENT
-    )
-    async def play_file(self, ctx=SlashContext, *, file: discord.Attachment):
-        await ctx.defer()
-        if (not ctx.author.voice):
-            return await ctx.channel.send('Join a channel first')
-        if not ctx.voice_state:
-            await ctx.author.voice.channel.connect()
-        else:
-            await ctx.voice_state.move(ctx.author.voice.channel)
+    async def play_file(self, inter: discord.Interaction, file: discord.Attachment):
+        await inter.response.defer()
         print("Playing "+file.url)
-        audio = AudioVolume(file.url)
-        await ctx.send("Playing "+file.url)
-        await ctx.voice_state.play(audio)
-
-    @listen(Component)
-    async def on_component(self, event: Component):
-        ctx = event.ctx
-        if ctx.custom_id == "pause":
-            # change icon and label to resume
-            await self.pause_audio(ctx)
-            await ctx.edit_origin(components=[
-                ActionRow(
-                    Button(
-                        style=ButtonStyle.green,
-                        emoji="▶️",
-                        custom_id="resume"
-                    ),
-                    Button(
-                        style=ButtonStyle.grey,
-                        emoji="⏹",
-                        custom_id="stop"
-                    ),
-                    Button(
-                        style=ButtonStyle.grey,
-                        emoji="⏭",
-                        custom_id="skip"
-                    ),
-                )
-            ])
-        elif ctx.custom_id == "resume":
-            await self.resume_audio(ctx)
-            await ctx.edit_origin(components=[
-                ActionRow(
-                    Button(
-                        style=ButtonStyle.grey,
-                        emoji="⏸",
-                        custom_id="pause"
-                    ),
-                    Button(
-                        style=ButtonStyle.grey,
-                        emoji="⏹",
-                        custom_id="stop"
-                    ),
-                    Button(
-                        style=ButtonStyle.grey,
-                        emoji="⏭",
-                        custom_id="skip"
-                    ),
-                )
-            ])
-        elif ctx.custom_id == "stop":
-            return await self.stop_audio(ctx)
-        elif ctx.custom_id == "skip":
-            return await self.skip_current(ctx)
+        audio = AudioSegment.from_file(file.url)
+        await play(inter, audio, "test")
+        await inter.followup.send("Playing file " + file.url)
+    
+    @commands.Cog.listener()
+    async def on_interaction(self, inter: discord.Interaction):
+        origin_msg = inter.message  
+        if "custom_id" not in inter.data:
+            return
+        if inter.data["custom_id"] == "pause":
+            await self.pause_audio(inter)
+            view = BaseView()
+            view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Resume",
+                                            emoji="▶️",
+                                            custom_id="resume"))
+            view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Stop",
+                                            emoji="⏹",
+                                            custom_id="stop"))
+            view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Skip",
+                                            emoji="⏭",
+                                            custom_id="skip"))
+            await origin_msg.edit(view=view)
+        elif inter.data["custom_id"] == "resume":
+            await self.resume_audio(inter)
+            view = BaseView()
+            view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Pause",
+                                            emoji="⏸",
+                                            custom_id="pause"))
+            view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Stop",
+                                            emoji="⏹",
+                                            custom_id="stop"))
+            view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Skip",
+                                            emoji="⏭",
+                                            custom_id="skip"))
+            await origin_msg.edit(view=view)
+        elif inter.data["custom_id"] == "stop":
+            await self.stop_audio(inter)
+        elif inter.data["custom_id"] == "skip":
+            await self.skip_current(inter)
 
 
-def setup(bot):
-    MusicCommands(bot)
+async def setup(bot):
+    print("Adding MusicCommands")
+    await bot.add_cog(MusicCommands(bot))
+
+
+async def teardown(bot):
+    print("Unloaded MusicCommands")

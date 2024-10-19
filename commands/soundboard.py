@@ -13,7 +13,7 @@ import pydub
 import utils
 import utils.audio_player
 from utils.audio_player import play, set_volume
-
+from pydub import AudioSegment
 
 class BaseView(discord.ui.View):
     interaction: discord.Interaction | None = None
@@ -121,7 +121,7 @@ class SoundboardCommands(commands.Cog):
                 filename = self.saveFile(url, id)
         # join the voice channel and play the audio
 
-        await play(inter, pydub.AudioSegment.from_file(filename), inter.user.id)
+        await play(inter, AudioSegment.from_file(filename), inter.user.id)
         print("finished sending sound")
 
     @app_commands.command(name="add_sound", description="Add a sound to the soundboard")
@@ -171,7 +171,7 @@ class SoundboardCommands(commands.Cog):
                          }}
         self.soundboardCollection.update_one(
             {"_id": soundId}, soundboardRow, upsert=True)
-        await inter.response.send_message("Added sound "+name)
+        await inter.followup.send("Added sound "+name)
 
     async def autocomplete_name(self, inter: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         sounds = self.soundboardCollection.find(

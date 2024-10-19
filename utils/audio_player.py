@@ -47,6 +47,7 @@ class AudioPlayer(threading.Thread):
         self.encoder = encoder
 
         self.userDict = {}
+        self.pausedUserDict = {}
 
         self.volume:int = 100
 
@@ -93,14 +94,14 @@ class AudioPlayer(threading.Thread):
                 else:
                     newLoopStarted = True
                     self._items_in_queue.clear()
-                
-            # Set volume of output
-            data = data.apply_gain(20*math.log10(self.volume/100)) #i forgor if its -20 or -10
-            data = bytes(data.raw_data)
+            
             if not data:
                 self.send_silence()
                 newLoopStarted = True
                 continue
+            # Set volume of output
+            data = data.apply_gain(20*math.log10(self.volume/100)) #i forgor if its -20 or -10
+            data = bytes(data.raw_data)
 
             loops += 1
 
@@ -136,6 +137,31 @@ class AudioPlayer(threading.Thread):
         
     def stop(self):
         self._end.set()
+        # clear the queue
+        self.userDict = {}
+        self._items_in_queue.clear()
+    
+    def stop_user(self, user: str):
+        with self._lock:
+            if user in self.userDict:
+                self.userDict.pop(user)
+            if user in self.pausedUserDict:
+                self.pausedUserDict.pop(user)
+            
+    def pause_user(self, user: str):
+        with self._lock:
+            if user in self.userDict:
+                self.pausedUserDict[user] = self.userDict[user]
+                self.userDict.pop(user)
+                self._items_in_queue.set()
+    
+    def resume_user(self, user: str):
+        with self._lock:
+            if user in self.pausedUserDict:
+                self.userDict[user] = self.pausedUserDict[user]
+                self.pausedUserDict.pop(user)
+                self.userDict = dict(sorted(self.userDict.items(), key=lambda item: len(item[1])))
+                self._items_in_queue.set()
 
     def _speak(self, speaking: SpeakingState) -> None:
         try:
@@ -154,7 +180,13 @@ class AudioPlayer(threading.Thread):
     def current_client(self) -> VoiceClient:
         return self.client
     
+    def is_playing(self, user: str) -> bool:
+        return user in self.userDict or user in self.pausedUserDict
+    
     def add_to_source_queue(self, newSound: AudioSegment, user: str) -> bool:
+        # clear paused user
+        if user in self.pausedUserDict:
+            self.pausedUserDict.pop(user)
         if True: #newSound.frame_rate != 48000 or newSound.channels != 2: #sample rate isnt 48 khz stereo, need to convert
             print("file not in 48khz stereo, converting")
             newSound = newSound.set_sample_width(2).set_channels(2).set_frame_rate(48000)
@@ -167,10 +199,11 @@ class AudioPlayer(threading.Thread):
         # with self._lock:
         print(self.userDict.keys())
         # userId = round(time.time())
-        self.userDict[user] = newSound.raw_data
-        # sort it based on length
-        self.userDict = dict(sorted(self.userDict.items(), key=lambda item: len(item[1])))
-        self._items_in_queue.set()
+        with self._lock:
+            self.userDict[user] = newSound.raw_data
+            # sort it based on length
+            self.userDict = dict(sorted(self.userDict.items(), key=lambda item: len(item[1])))
+            self._items_in_queue.set()
         return True
     
     def set_volume(self, volume: int):
@@ -213,3 +246,31 @@ def set_volume(inter: discord.Interaction, volume: int):
     audioVolume[guild] = volume
     if guild in audioClients.keys() and audioClients[guild] != None:
         audioClients[guild].set_volume(volume)
+
+def is_playing(inter: discord.Interaction, identifier: str):
+    guild = inter.guild
+    if guild in audioClients.keys() and audioClients[guild] != None:
+        return audioClients[guild].is_playing(identifier)
+    return False
+
+def stop_all(inter: discord.Interaction):
+    guild = inter.guild
+    if guild in audioClients.keys() and audioClients[guild] != None:
+        audioClients[guild].stop()
+        audioClients[guild] = None
+        audioVolume.pop(guild, None)
+
+def stop_user(inter: discord.Interaction, user: str):
+    guild = inter.guild
+    if guild in audioClients.keys() and audioClients[guild] != None:
+        audioClients[guild].stop_user(user)
+
+def pause_user(inter: discord.Interaction, user: str):
+    guild = inter.guild
+    if guild in audioClients.keys() and audioClients[guild] != None:
+        audioClients[guild].pause_user(user)
+
+def resume_user(inter: discord.Interaction, user: str):
+    guild = inter.guild
+    if guild in audioClients.keys() and audioClients[guild] != None:
+        audioClients[guild].resume_user(user)
