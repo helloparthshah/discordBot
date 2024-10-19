@@ -50,6 +50,29 @@ class AudioPlayer(threading.Thread):
         self.pausedUserDict = {}
 
         self.volume:int = 100
+    
+    def readNext(self):
+        with self._lock:
+            # check if userDict is empty
+            if len(self.userDict) > 0:
+                data = pydub.AudioSegment.silent(duration=20, frame_rate=OpusEncoder.SAMPLING_RATE)
+                for user in self.userDict.keys():
+                    if self.userDict[user] != None:
+                        # use overlay to mix the sounds
+                        readData = min(self.FRAME_SIZE, len(self.userDict[user]))
+                        buffer = BytesIO(self.userDict[user][readData:])
+                        buffer.seek(0)
+                        data = data.overlay(pydub.AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=OpusEncoder.SAMPLING_RATE))
+                        if (len(self.userDict[user]) >= self.FRAME_SIZE):
+                            self.userDict[user] = self.userDict[user][self.FRAME_SIZE:]
+                        else:
+                            self.userDict[user] = None
+                self.userDict = {key:val for key, val in self.userDict.items() if val != None}
+        
+        # Set volume of output
+        data = data.apply_gain(20*math.log10(self.volume/100)) #i forgor if its -20 or -10
+        data = bytes(data.raw_data)
+        return data
 
     def _do_run(self) -> None:
         # getattr lookup speed ups
@@ -65,43 +88,12 @@ class AudioPlayer(threading.Thread):
                 break
             self._items_in_queue.wait()
             if newLoopStarted:
+                self._speak(SpeakingState.none)
                 print("New loop started")
                 startTimer = time.perf_counter()
                 loops = 0
-                newLoopStarted = False
-            data = None
-            with self._lock:
-                # check if userDict is empty
-                if len(self.userDict) > 0:
-                    data = pydub.AudioSegment.silent(duration=20, frame_rate=OpusEncoder.SAMPLING_RATE)
-                    for user in self.userDict.keys():
-                        if self.userDict[user] != None:
-                            # use overlay to mix the sounds
-                            readData = min(self.FRAME_SIZE, len(self.userDict[user]))
-                            buffer = BytesIO(self.userDict[user][readData:])
-                            buffer.seek(0)
-                            data = data.overlay(pydub.AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=OpusEncoder.SAMPLING_RATE))
-                            if (len(self.userDict[user]) >= self.FRAME_SIZE):
-                                self.userDict[user] = self.userDict[user][self.FRAME_SIZE:]
-                            else:
-                                self.userDict[user] = None
-                        else:
-                            self.userDict[user] = None
-                    self.userDict = {key:val for key, val in self.userDict.items() if val != None}
-                    if len(self.userDict) == 0:
-                        newLoopStarted = True
-                        self._items_in_queue.clear()
-                else:
-                    newLoopStarted = True
-                    self._items_in_queue.clear()
-            
-            if not data:
-                self.send_silence()
-                newLoopStarted = True
-                continue
-            # Set volume of output
-            data = data.apply_gain(20*math.log10(self.volume/100)) #i forgor if its -20 or -10
-            data = bytes(data.raw_data)
+                newLoopStarted = False            
+                self._speak(SpeakingState.voice)
 
             loops += 1
 
@@ -115,6 +107,14 @@ class AudioPlayer(threading.Thread):
                     return
                 _log.debug('Reconnected, resuming playback')
                 self._speak(SpeakingState.voice)
+            data = self.readNext()
+            if len(self.userDict) == 0:
+                newLoopStarted = True
+                self._items_in_queue.clear()
+            if not data:
+                self.send_silence()
+                newLoopStarted = True
+                continue
 
             opusData = self.encoder.encode(data, self.encoder.SAMPLES_PER_FRAME)
             play_audio(opusData, encode=False)
