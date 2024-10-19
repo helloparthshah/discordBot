@@ -50,9 +50,9 @@ class AudioPlayer(threading.Thread):
         self.pausedUserDict = {}
 
         self.volume:int = 100
-        self._playing: threading.Event = threading.Event()
     
     def readNext(self):
+        data = None
         with self._lock:
             # check if userDict is empty
             if len(self.userDict) > 0:
@@ -69,7 +69,8 @@ class AudioPlayer(threading.Thread):
                         else:
                             self.userDict[user] = None
                 self.userDict = {key:val for key, val in self.userDict.items() if val != None}
-        
+        if data == None:
+            return None
         # Set volume of output
         data = data.apply_gain(20*math.log10(self.volume/100)) #i forgor if its -20 or -10
         data = bytes(data.raw_data)
@@ -125,15 +126,19 @@ class AudioPlayer(threading.Thread):
 
     def run(self) -> None:
         try:
-            self._playing.set()
             self._do_run()
         except Exception as exc:
             print("Error in run")
             print(traceback.format_exc())
             self._current_error = exc
-            self.stop()
+            self._items_in_queue.clear()
+            self.userDict = {}
+            self.pausedUserDict = {}
+            self._speak(SpeakingState.none)
+            # self.stop()
+        else:
+            print("No exception in run")
         finally:
-            self._playing.clear()
             #self._call_after()
             #self.source.cleanup()
             pass
@@ -165,9 +170,6 @@ class AudioPlayer(threading.Thread):
                 self.pausedUserDict.pop(user)
                 self.userDict = dict(sorted(self.userDict.items(), key=lambda item: len(item[1])))
                 self._items_in_queue.set()
-                if self._playing.is_set():
-                    return True
-                self.start()
 
     def _speak(self, speaking: SpeakingState) -> None:
         try:
@@ -210,9 +212,6 @@ class AudioPlayer(threading.Thread):
             # sort it based on length
             self.userDict = dict(sorted(self.userDict.items(), key=lambda item: len(item[1])))
             self._items_in_queue.set()
-        if self._playing.is_set():
-            return True
-        self.start()
     
     def set_volume(self, volume: int):
         self.volume = volume
