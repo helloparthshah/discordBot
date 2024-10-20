@@ -6,21 +6,21 @@ class HashiruCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.current_voice_channel = {}
-        self.deafened_channel = 1297374877656940587
+        self.deafened_channel = {1030766503949254656:1297374877656940587}
     
     @app_commands.command(name="update_deafened_channel", description="Update the channel to move deafened users to")
     @app_commands.describe(
         channel="The channel to move deafened users to",
     )
     async def update_deafened_channel(self, inter: discord.Interaction, channel: discord.VoiceChannel):
-        self.deafened_channel = channel.id
+        self.deafened_channel[inter.guild.id] = channel.id
         await inter.response.send_message("Updated the channel to move deafened users")
     
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
         if member.voice.self_deaf or member.voice.self_mute:
             guild = member.guild
-            voice_channel = guild.get_channel(self.deafened_channel)
+            voice_channel = guild.get_channel(self.deafened_channel.get(guild.id))
             # check if already in the channel
             if member.voice.channel == voice_channel:
                 return
