@@ -45,6 +45,9 @@ class MusicQueueSong:
 
 
 class MusicCommands(commands.Cog):
+    def generate_music_identitiy(self, inter: discord.Interaction):
+        return str(inter.guild.id) + "-music"
+    
     async def autocomplete_link(self,  inter: discord.Interaction, current: str):
         string_option_input = current
         if not string_option_input or len(string_option_input) < 3:
@@ -73,7 +76,7 @@ class MusicCommands(commands.Cog):
         music_queue[inter.guild.id].append(MusicQueueSong(link))
 
         # add to queue if already playing
-        if is_playing(inter, "test"):
+        if is_playing(inter, self.generate_music_identitiy(inter)):
             print("Playing next")
             return await inter.followup.send(f"Added {link} to the queue")
 
@@ -109,8 +112,8 @@ class MusicCommands(commands.Cog):
                                         custom_id="skip"))
         await inter.followup.send(embed=embed, view=view)
 
-        await play(inter, audio, "test")
-        while is_playing(inter, "test"):
+        await play(inter, audio, self.generate_music_identitiy(inter))
+        while is_playing(inter, self.generate_music_identitiy(inter)):
             await asyncio.sleep(1)
         print("Playing next")
         # delete the file
@@ -128,7 +131,7 @@ class MusicCommands(commands.Cog):
         await inter.response.defer()
         if inter.guild.id not in music_queue or len(music_queue[inter.guild.id]) == 0:
             return await inter.followup.send('No songs in queue')
-        stop_user(inter, "test")
+        stop_user(inter, self.generate_music_identitiy(inter))
 
     def search_youtube(self, query):
         return YoutubeSearch(query, max_results=5).to_dict()
@@ -152,7 +155,7 @@ class MusicCommands(commands.Cog):
 
     async def stop_audio(self, inter: discord.Interaction):
         await inter.response.defer()
-        stop_user(inter, "test")
+        stop_user(inter, self.generate_music_identitiy(inter))
         # clear the queue
         music_queue[inter.guild.id] = []
         await inter.followup.send('Stopped the audio')
@@ -165,7 +168,7 @@ class MusicCommands(commands.Cog):
 
     async def pause_audio(self, inter: discord.Interaction):
         await inter.response.defer()
-        pause_user(inter, "test")
+        pause_user(inter, self.generate_music_identitiy(inter))
 
     @app_commands.command(name="resume", description="Resume the audio")
     async def resume(self, inter: discord.Interaction):
@@ -175,9 +178,9 @@ class MusicCommands(commands.Cog):
 
     async def resume_audio(self, inter: discord.Interaction):
         await inter.response.defer()
-        if not is_playing(inter, "test"):
+        if not is_playing(inter, self.generate_music_identitiy(inter)):
             return await inter.followup.send('No audio to resume')
-        resume_user(inter, "test")
+        resume_user(inter, self.generate_music_identitiy(inter))
 
     @app_commands.command(name="play_file", description="Play an audio file")
     @app_commands.describe(
@@ -187,7 +190,7 @@ class MusicCommands(commands.Cog):
         await inter.response.defer()
         print("Playing "+file.url)
         audio = AudioSegment.from_file(file.url)
-        await play(inter, audio, "test")
+        await play(inter, audio, self.generate_music_identitiy(inter))
         await inter.followup.send("Playing file " + file.url)
     
     @commands.Cog.listener()
