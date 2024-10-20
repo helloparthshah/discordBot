@@ -24,6 +24,8 @@ class HashiruCommands(commands.Cog):
             # check if already in the channel
             if member.voice.channel == voice_channel:
                 return
+            if voice_channel is None:
+                return
             self.current_voice_channel[member.id] = member.voice.channel
             
             await member.move_to(voice_channel)
