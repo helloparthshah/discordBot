@@ -1,4 +1,5 @@
 import asyncio
+from asyncio import subprocess
 from io import BytesIO
 import logging
 import threading
@@ -59,17 +60,11 @@ class AudioPlayer(threading.Thread):
                 silent_data = data = b"\0\0" * self.FRAME_SIZE
                 silent_data = BytesIO(silent_data)
                 data = pydub.AudioSegment.from_raw(silent_data, sample_width=2, channels=2, frame_rate=OpusEncoder.SAMPLING_RATE)
-                # data = pydub.AudioSegment.silent(duration=20, frame_rate=OpusEncoder.SAMPLING_RATE)
                 for user in self.userDict.keys():
                     if self.userDict[user] != None:
-                        # use overlay to mix the sounds
-                        readData = min(self.FRAME_SIZE, len(self.userDict[user]))
-                        buffer = BytesIO(self.userDict[user][readData:])
-                        buffer.seek(0)
-                        data = data.overlay(pydub.AudioSegment.from_raw(buffer, sample_width=2, channels=2, frame_rate=OpusEncoder.SAMPLING_RATE))
-                        if (len(self.userDict[user]) >= self.FRAME_SIZE):
-                            self.userDict[user] = self.userDict[user][self.FRAME_SIZE:]
-                        else:
+                        current = self.userDict[user].pop(0)
+                        data = data.overlay(current)
+                        if len(self.userDict[user]) == 0:
                             self.userDict[user] = None
                 self.userDict = {key:val for key, val in self.userDict.items() if val != None}
         if data == None:
@@ -211,7 +206,11 @@ class AudioPlayer(threading.Thread):
         print(self.userDict.keys())
         # userId = round(time.time())
         with self._lock:
-            self.userDict[user] = newSound.raw_data
+            # split into chunks of 20ms
+            chunks = []
+            for i in range(0, len(newSound), 20):
+                chunks.append(newSound[i:i+20])
+            self.userDict[user] = chunks
             # sort it based on length
             self.userDict = dict(sorted(self.userDict.items(), key=lambda item: len(item[1])))
             self._items_in_queue.set()
