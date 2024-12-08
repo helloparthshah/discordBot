@@ -1,5 +1,4 @@
 import asyncio
-from asyncio import subprocess
 from io import BytesIO
 import logging
 import threading
@@ -9,7 +8,7 @@ import math
 import typing
 
 import discord
-from discord import Guild, VoiceClient
+from discord import VoiceClient
 from discord.enums import SpeakingState
 from discord.opus import Encoder as OpusEncoder, OPUS_SILENCE
 from pydub import AudioSegment, effects
@@ -229,10 +228,10 @@ encoder = discord.opus.Encoder(
     signal_type='auto',
 )
 
-async def play(inter: discord.Interaction, sound: AudioSegment, identifier):
+async def init_voice_client(inter: discord.Interaction):
     guild = inter.guild
     if not inter.user.voice:
-        return
+        return False
     if guild.voice_client == None or guild.voice_client.channel == None:
         await inter.user.voice.channel.connect()
     elif guild.voice_client.channel != inter.user.voice.channel:
@@ -246,8 +245,12 @@ async def play(inter: discord.Interaction, sound: AudioSegment, identifier):
         audioClients[guild].start()
         # set volume to already set volume
         set_volume(inter, audioVolume[guild])
-    
-    audioClients[guild].add_to_source_queue(sound, identifier)
+    return True
+
+async def play(inter: discord.Interaction, sound: AudioSegment, identifier):
+    guild = inter.guild
+    if await init_voice_client(inter):
+        audioClients[guild].add_to_source_queue(sound, identifier)
         
 
 def set_volume(inter: discord.Interaction, volume: int):

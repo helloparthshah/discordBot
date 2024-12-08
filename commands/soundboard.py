@@ -272,6 +272,7 @@ class SoundboardCommands(commands.Cog):
 
     @app_commands.command(name="soundboard", description="Play a sound from the soundboard")
     async def soundboard(self, inter: discord.Interaction):
+        await inter.response.defer()
         # get all sounds for the server
         sounds = self.soundboardCollection.find(
             {"server": inter.guild_id})
@@ -297,10 +298,7 @@ class SoundboardCommands(commands.Cog):
             view = BaseView()
             for button in buttonGroup:
                 view.add_item(button)
-            if inter.response.is_done():
-                await inter.followup.send(view=view)
-            else:
-                await inter.response.send_message(view=view)
+            await inter.followup.send(view=view)
 
     @app_commands.command(name="volume", description="Set volume of music player")
     async def update_volume(self, inter: discord.Interaction, volume: int):

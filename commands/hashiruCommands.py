@@ -18,6 +18,8 @@ class HashiruCommands(commands.Cog):
     
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
+        if not member.voice:
+            return
         if member.voice.self_deaf:
             guild = member.guild
             voice_channel = guild.get_channel(self.deafened_channel.get(guild.id))
