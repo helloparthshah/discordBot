@@ -48,6 +48,8 @@ class AudioPlayer(threading.Thread):
 
         self.userDict = {}
         self.pausedUserDict = {}
+        
+        self.pitch:float = 1.0
 
         self.volume:int = 100
     
@@ -188,10 +190,48 @@ class AudioPlayer(threading.Thread):
     def is_playing(self, user: str) -> bool:
         return user in self.userDict or user in self.pausedUserDict
     
+    async def change_pitch(self, newPitch: float):
+        if newPitch < 0 or newPitch > 2.0:
+            return
+        if newPitch == self.pitch:
+            return
+        print("Changing pitch to", newPitch)
+        self.pitch = newPitch
+        return
+        # currently this is too ineffitient so we will not use it
+        # change existing queue to new pitch
+        current_songs = {}
+        current_chunks = self.userDict
+        # merge chunks back into one since speed change is done on the whole song
+        with self._lock:
+            for user in current_chunks.keys():
+                for i in range(len(current_chunks[user])):
+                    if user in current_songs:
+                        current_songs[user] += current_chunks[user][i]
+                    else:
+                        current_songs[user] = current_chunks[user][i]
+            for user in current_songs.keys():
+                newSound = current_songs[user]
+                new_sample_rate = int(newSound.frame_rate * (2.0 ** (self.pitch-1)))
+                newSound = newSound._spawn(newSound.raw_data, overrides={'frame_rate': new_sample_rate})
+                newSound = newSound.set_sample_width(2).set_channels(2).set_frame_rate(48000)
+                chunks = []
+                for i in range(0, len(newSound), 20):
+                    chunks.append(newSound[i:i+20])
+                self.userDict[user] = chunks
+                # sort it based on length
+                self.userDict = dict(sorted(self.userDict.items(), key=lambda item: len(item[1])))
+                    
+                
+    
     def add_to_source_queue(self, newSound: AudioSegment, user: str) -> bool:
         # clear paused user
         if user in self.pausedUserDict:
             self.pausedUserDict.pop(user)
+        print(self.pitch)
+        if self.pitch != 1.0:
+                new_sample_rate = int(newSound.frame_rate * (2.0 ** (self.pitch-1)))
+                newSound = newSound._spawn(newSound.raw_data, overrides={'frame_rate': new_sample_rate})
         if True: #newSound.frame_rate != 48000 or newSound.channels != 2: #sample rate isnt 48 khz stereo, need to convert
             print("file not in 48khz stereo, converting")
             newSound = newSound.set_sample_width(2).set_channels(2).set_frame_rate(48000)
@@ -286,3 +326,8 @@ def resume_user(inter: discord.Interaction, user: str):
     guild = inter.guild
     if guild in audioClients.keys() and audioClients[guild] != None:
         audioClients[guild].resume_user(user)
+
+async def change_pitch(inter: discord.Interaction, pitch: float):
+    guild = inter.guild
+    if await init_voice_client(inter):
+        await audioClients[guild].change_pitch(pitch)

@@ -12,7 +12,7 @@ import pydub
 
 import utils
 import utils.audio_player
-from utils.audio_player import play, set_volume
+from utils.audio_player import play, set_volume, change_pitch
 from pydub import AudioSegment
 
 class BaseView(discord.ui.View):
@@ -310,6 +310,18 @@ class SoundboardCommands(commands.Cog):
 
     def set_soundboard_volume(self, inter: discord.Interaction, volume: int):
         set_volume(inter, volume)
+        
+    @app_commands.command(name="pitch", description="Set pitch of music player")
+    async def update_pitch(self, inter: discord.Interaction, pitch: float):
+        await inter.response.defer()
+        if pitch < 0.5 or pitch > 1.5:
+            await inter.followup.send("\U0000274C Pitch must be between 0.5 and 1.5")
+            return
+        await self.set_soundboard_pitch(inter, pitch)
+        await inter.followup.send(f"Set soundboard pitch to {pitch}")
+
+    async def set_soundboard_pitch(self, inter: discord.Interaction, pitch: int):
+        await change_pitch(inter, pitch)
         
     @commands.Cog.listener()
     async def on_interaction(self, inter: discord.Interaction):
