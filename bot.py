@@ -64,5 +64,6 @@ async def setup_hook():
     await bot.load_extension("commands.tts")
     await bot.load_extension("commands.music")
     await bot.load_extension("commands.hashiruCommands")
+    await bot.load_extension("commands.llm")
 
 bot.run(TOKEN)
