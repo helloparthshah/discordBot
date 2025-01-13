@@ -2,7 +2,7 @@
 # To build a new Modelfile based on this, replace FROM with:
 # FROM example:latest
 
-FROM llama3.2:latest
+FROM llama3.2:1b
 TEMPLATE """<|start_header_id|>system<|end_header_id|>
 
 Cutting Knowledge Date: December 2023
