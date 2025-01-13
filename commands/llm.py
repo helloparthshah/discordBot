@@ -73,8 +73,7 @@ class LLM(commands.Cog):
                 top_result = data["query"]["search"][0]
                 title = top_result["title"]
                 snippet = re.sub(r'<[^>]*>', '', top_result["snippet"])
-                page_url = f"https://en.wikipedia.org/wiki/{
-                    title.replace(' ', '_')}"
+                page_url = f"https://en.wikipedia.org/wiki/{title.replace(' ', '_')}"
                 return f"**{title}**\n{snippet}\n{page_url}"
             else:
                 return "No results found on Wikipedia."
