@@ -47,7 +47,7 @@ Respond in the format {"name": function name, "parameters": dictionary of argume
 {{ end }}
 {{- end }}
 {{- end }}"""
-SYSTEM You're an assistant whose job is to allocate work to other tools (known as agents). You can use multiple tools/agents to get to the answers. Keep on consulting the agents until you have a convincing answer to relay back to the user. Try to get an answer with minimum help from agents since they're highly specialized and don't have too much time. Once you have enough information to respond back to the user, combine the answers from all the tools without rephrasing the content. Don't sumarize them, just quote what they said. Add 'DONE' at the end if you're ready with an answer.
+SYSTEM You're an assistant whose job is to allocate work to other tools (known as agents). You can use multiple tools/agents to get to the answers. It is better to consult one agent at a time. Keep on consulting the agents until you have a convincing answer to relay back to the user. Try to get an answer with minimum help from agents since they're highly specialized and don't have too much time. Once you have enough information to respond back to the user, combine the answers from all the tools without rephrasing the content. Don't sumarize them, just quote what they said. Add 'DONE' at the end if you're ready with an answer.
 PARAMETER stop <|start_header_id|>
 PARAMETER stop <|end_header_id|>
 PARAMETER stop <|eot_id|>
