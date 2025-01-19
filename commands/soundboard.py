@@ -319,6 +319,27 @@ class SoundboardCommands(commands.Cog):
             return
         await self.set_soundboard_pitch(inter, pitch)
         await inter.followup.send(f"Set soundboard pitch to {pitch}")
+    
+    @app_commands.command(name="download_sound", description="Download a sound from the soundboard")
+    @app_commands.describe(name="The name of the sound to download")
+    @app_commands.autocomplete(name=autocomplete_name)
+    async def download_sound(self, inter: discord.Interaction, name: str):
+        if not inter.user.guild_permissions.create_expressions:
+            await inter.response.send_message("You do not have permission to download sounds")
+            return
+        await inter.response.defer()
+        soundId = name.lower()+"_"+str(inter.guild_id)
+        sound = self.soundboardCollection.find_one({"_id": soundId})
+        url = sound['sound']
+        ext = url.split(".")[-1].split("?")[0]
+        filename = "sounds/"+soundId+"."+ext
+        if 'raw_sound' in sound:
+            self.writeRawFile(filename, sound['raw_sound'])
+        else:
+            self.saveFile(url, soundId)
+        # send the file as an attachment
+        await inter.followup.send(file=discord.File(filename))
+    
 
     async def set_soundboard_pitch(self, inter: discord.Interaction, pitch: int):
         await change_pitch(inter, pitch)
