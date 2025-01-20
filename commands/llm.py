@@ -85,22 +85,8 @@ class LLM(commands.Cog):
             {
                 'type': 'function',
                 'function': {
-                    'name': 'wikipedia',
-                    'description': 'Consult Wikipedia for questions related to general knowledge and facts.',
-                    'parameters': {
-                        'type': 'object',
-                        'required': ['question'],
-                        'properties': {
-                            'question': {'type': 'string', 'description': 'The question to search Wikipedia for'},
-                        },
-                    },
-                },
-            },
-            {
-                'type': 'function',
-                'function': {
                     'name': 'chussu',
-                    'description': 'Consult chussu for questions related to relationships.',
+                    'description': 'Consult chussu for questions related to relationships. He has been in over 1000 relationships and has a lot of experience.',
                     'parameters': {
                         'type': 'object',
                         'required': ['question'],
@@ -114,12 +100,26 @@ class LLM(commands.Cog):
                 'type': 'function',
                 'function': {
                     'name': 'keya',
-                    'description': 'Consult keya for questions related to working at Netflix and programming.',
+                    'description': 'Consult keya for questions related to working at Netflix and programming. She is a software engineer at Netflix.',
                     'parameters': {
                         'type': 'object',
                         'required': ['question'],
                         'properties': {
                             'question': {'type': 'string', 'description': 'The question to ask Keya'},
+                        },
+                    },
+                },
+            },
+            {
+                'type': 'function',
+                'function': {
+                    'name': 'wikipedia',
+                    'description': 'Consult Wikipedia for questions related to general knowledge and facts.',
+                    'parameters': {
+                        'type': 'object',
+                        'required': ['question'],
+                        'properties': {
+                            'question': {'type': 'string', 'description': 'The question to search Wikipedia for'},
                         },
                     },
                 },
@@ -136,7 +136,10 @@ class LLM(commands.Cog):
         if response.message.tool_calls:
             for tool in response.message.tool_calls:
                 if function_to_call := self.available_functions.get(tool.function.name):
-                    await self.sendInChunks(inter, "Asking "+tool.function.name+": " + tool.function.arguments['question'])
+                    try:
+                        await self.sendInChunks(inter, "Asking "+tool.function.name+": " + tool.function.arguments['question'])
+                    except:
+                        pass
                     output = function_to_call(**tool.function.arguments)
                     messages.append({'role': 'tool', 'content': str(
                         output), 'name': tool.function.name})
