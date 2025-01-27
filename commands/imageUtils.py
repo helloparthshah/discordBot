@@ -1,8 +1,6 @@
 import discord
-from interactions import Extension, OptionType, slash_command, slash_option
 import os
 from dotenv import load_dotenv
-from interactions import SlashContext
 import requests
 from io import BytesIO
 from PIL import Image, ImageFont, ImageDraw
@@ -52,7 +50,7 @@ class ImageUtils(commands.Cog):
         draw_new.multiline_text((box[0], box[1]), text, "black", font)
 
         new.save('temp.png')
-        await inter.followup.send(file='temp.png')
+        await inter.followup.send(file=discord.File('temp.png'))
 
     @app_commands.command(name="remove_bg", description="Remove the background")
     @app_commands.describe(
@@ -72,7 +70,7 @@ class ImageUtils(commands.Cog):
         if response.status_code == requests.codes.ok:
             with open('temp.png', 'wb') as out:
                 out.write(response.content)
-            await inter.followup.send(file='temp.png')
+            await inter.followup.send(file=discord.File('temp.png'))
 
 async def setup(bot):
     print("Adding ImageUtils")
