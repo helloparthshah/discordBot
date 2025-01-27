@@ -93,7 +93,7 @@ class MusicCommands(commands.Cog):
 
         # extract only audio
         video = yt.streams.get_audio_only()
-        out_file = video.download(mp3=True, output_path='.')
+        out_file = video.download(output_path='.')
 
         # Get the audio using YTDL
         audio = AudioSegment.from_file(out_file)
