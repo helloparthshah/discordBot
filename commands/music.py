@@ -41,7 +41,7 @@ class BaseView(discord.ui.View):
 class MusicQueueSong:
     def __init__(self, url):
         self.url = url
-        self.yt = YouTube(url, client='WEB_EMBED')
+        self.yt = YouTube(url, client='WEB')
 
 
 class MusicCommands(commands.Cog):
