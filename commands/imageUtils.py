@@ -7,28 +7,24 @@ import requests
 from io import BytesIO
 from PIL import Image, ImageFont, ImageDraw
 import textwrap
+import discord
+from discord import app_commands
+from discord.ext import commands
 
 
-class ImageUtils(Extension):
+class ImageUtils(commands.Cog):
     def __init__(self, bot):
         load_dotenv()
+        self.bot = bot
         self.REMOVE_BG_KEY = os.getenv('REMOVE_BG_KEY')
 
-    @slash_command(name="generate_meme", description="Generate a meme using a image and text")
-    @slash_option(
-        name="image",
-        description="The image to use for the meme",
-        opt_type=OptionType.ATTACHMENT,
-        required=True
+    @app_commands.command(name="generate_meme", description="Generate a meme using a image and text")
+    @app_commands.describe(
+        image="The image to use for the meme",
+        text="The text to use for the meme",
     )
-    @slash_option(
-        name="text",
-        description="The text to use for the meme",
-        opt_type=OptionType.STRING,
-        required=True
-    )
-    async def generate_meme(self, ctx=SlashContext, *, image: discord.Attachment, text: str):
-        await ctx.defer()
+    async def generate_meme(self, inter: discord.Interaction, image: discord.Attachment, text: str):
+        await inter.response.defer()
         lines = textwrap.wrap(text, 30)
         text = "\n".join(lines)
 
@@ -56,17 +52,14 @@ class ImageUtils(Extension):
         draw_new.multiline_text((box[0], box[1]), text, "black", font)
 
         new.save('temp.png')
-        await ctx.send(file='temp.png')
+        await inter.followup.send(file='temp.png')
 
-    @slash_command(name="remove_bg", description="Remove the background")
-    @slash_option(
-        name="image",
-        description="The image to remove the background from",
-        opt_type=OptionType.ATTACHMENT,
-        required=True
+    @app_commands.command(name="remove_bg", description="Remove the background")
+    @app_commands.describe(
+        image="The image to remove the background from",
     )
-    async def remove_bg(self, ctx=SlashContext, *, image: discord.Attachment):
-        await ctx.defer()
+    async def remove_bg(self, inter: discord.Interaction, image: discord.Attachment):
+        await inter.response.defer()
         # User remove.bg to remove the background
         image = Image.open(BytesIO(requests.get(image.url).content))
         image.save('temp.png')
@@ -79,8 +72,12 @@ class ImageUtils(Extension):
         if response.status_code == requests.codes.ok:
             with open('temp.png', 'wb') as out:
                 out.write(response.content)
-            await ctx.send(file='temp.png')
+            await inter.followup.send(file='temp.png')
+
+async def setup(bot):
+    print("Adding ImageUtils")
+    await bot.add_cog(ImageUtils(bot))
 
 
-def setup(bot):
-    ImageUtils(bot)
+async def teardown(bot):
+    print("Unloaded ImageUtils")
