@@ -67,20 +67,23 @@ class MusicCommands(commands.Cog):
     @app_commands.autocomplete(link=autocomplete_link)
     async def play(self, inter: discord.Interaction, link: str):
         await inter.response.defer()
+        try:
+            # check if link is a youtube link
+            if "youtube.com" not in link:
+                link = self.search_youtube(link)[0]['url_suffix']
 
-        # check if link is a youtube link
-        if "youtube.com" not in link:
-            link = self.search_youtube(link)[0]['url_suffix']
+            music_queue[inter.guild.id] = music_queue.get(inter.guild.id, [])
+            music_queue[inter.guild.id].append(MusicQueueSong(link))
 
-        music_queue[inter.guild.id] = music_queue.get(inter.guild.id, [])
-        music_queue[inter.guild.id].append(MusicQueueSong(link))
+            # add to queue if already playing
+            if is_playing(inter, self.generate_music_identitiy(inter)):
+                print("Playing next")
+                return await inter.followup.send(f"Added {link} to the queue")
 
-        # add to queue if already playing
-        if is_playing(inter, self.generate_music_identitiy(inter)):
-            print("Playing next")
-            return await inter.followup.send(f"Added {link} to the queue")
-
-        await self.play_next(inter)
+            await self.play_next(inter)
+        except Exception as e:
+            print(e)
+            await inter.followup.send(e)
 
     async def play_next(self,  inter: discord.Interaction):
         current_song = music_queue[inter.guild.id].pop(0)
