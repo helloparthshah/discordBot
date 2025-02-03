@@ -37,9 +37,9 @@ class HashiruCommands(commands.Cog):
                 self.current_voice_channel.pop(member.id, None)
 
 async def setup(bot):
-    print("Adding MusicCommands")
+    print("Adding HashiruCommands")
     await bot.add_cog(HashiruCommands(bot))
 
 
 async def teardown(bot):
-    print("Unloaded MusicCommands")
+    print("Unloaded HashiruCommands")
