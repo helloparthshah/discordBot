@@ -292,6 +292,7 @@ class SoundboardCommands(Extension):
 
     @slash_command(name="soundboard", description="Play a sound from the soundboard")
     async def soundboard(self, ctx=SlashContext, *, name: str = None):
+        await ctx.defer()
         # get all sounds for the server
         sounds = self.soundboardCollection.find(
             {"server": ctx.guild_id})
