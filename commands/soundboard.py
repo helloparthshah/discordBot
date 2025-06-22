@@ -313,7 +313,7 @@ class SoundboardCommands(Extension):
         buttonGroups = [buttons[i:i + 25] for i in range(0, len(buttons), 25)]
         
         for buttonGroup in buttonGroups:
-            await ctx.send(embed=embed, components=spread_to_rows(*buttonGroup))
+            await ctx.send(components=spread_to_rows(*buttonGroup))
 
     @listen(Component)
     async def on_component(self, event: Component):
