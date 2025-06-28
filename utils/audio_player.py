@@ -201,7 +201,7 @@ class AudioPlayer(threading.Thread):
         
         while not self._end.is_set():
             try:
-                frame_data = self.processed_queue.get()
+                frame_data = self.processed_queue.get(timeout=0.1)
                 
                 if not client.is_connected():
                     _log.warning('Voice client disconnected, consumer is pausing.')
