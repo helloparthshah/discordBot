@@ -147,18 +147,19 @@ class AudioPlayer(threading.Thread):
             users_to_remove = set()
             for user, data in self.userDict.items():
                 segment: AudioSegment = data['segment']
+                # The raw sample data of the entire track.
                 all_samples = data['samples'] 
                 progress_samples: float = data['progress_samples']
                 total_samples = len(all_samples) // self.CHANNELS
 
                 if progress_samples < total_samples:
-                    # This is the precise number of source samples to process for this batch.
-                    source_samples_to_process_float = source_duration_to_process_ms * self.SAMPLING_RATE / 1000.0
-
                     # ** THE DEFINITIVE FIX FOR SKIPPING/CLICKING **
                     # Calculate start and end indices by rounding the precise float positions.
                     # This prevents cumulative rounding errors.
                     start_sample_idx = int(round(progress_samples))
+                    
+                    # Calculate the number of samples to process in this batch
+                    source_samples_to_process_float = source_duration_to_process_ms * self.SAMPLING_RATE / 1000.0
                     end_sample_idx = int(round(progress_samples + source_samples_to_process_float))
 
                     # Convert sample indices to array indices (for interleaved stereo audio)
