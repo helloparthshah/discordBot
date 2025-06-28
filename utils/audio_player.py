@@ -48,7 +48,6 @@ class AudioPlayer(threading.Thread):
         self._end: threading.Event = threading.Event()
         self._items_in_queue = threading.Event() # Signals the producer to start working
         self._items_in_queue.clear()
-        # Using a Re-entrant Lock is crucial for the synchronous re-buffering logic
         self._lock: threading.RLock = threading.RLock()
 
         # Producer-Consumer queue. Holds perfectly-sized, ready-to-encode 20ms audio frames.
@@ -314,18 +313,6 @@ class AudioPlayer(threading.Thread):
         with self._lock:
             _log.info(f"Changing pitch to {newPitch}x")
             self.pitch = newPitch
-            self._clear_processed_queue()
-            # Prime the queue to prevent a gap after changing pitch
-            for _ in range(10): # Prime with 200ms of audio
-                if self._is_queue_empty(): break
-                frame = self._generate_frame()
-                if frame:
-                    try:
-                        self.processed_queue.put_nowait(frame)
-                    except queue.Full:
-                        break
-                else:
-                    break
     
     def add_to_source_queue(self, newSound: AudioSegment, user: str):
         with self._lock:
@@ -342,25 +329,13 @@ class AudioPlayer(threading.Thread):
         with self._lock:
             self.userDict[user] = {'segment': newSound, 'progress_samples': 0}
             
-            # ** ATOMIC RE-BUFFERING **
-            # This is the critical fix for the overlay delay.
-            # We clear the old buffer and immediately generate a healthy buffer of new frames
-            # to ensure the consumer doesn't starve and play silence.
-            self._clear_processed_queue()
+            # ** SEAMLESS OVERLAY LOGIC **
+            # By NOT clearing the buffer, we ensure there are no gaps.
+            # The producer will naturally start mixing in the new sound
+            # as it generates frames, resulting in a slight (but seamless) delay
+            # before the new overlay is heard.
             
-            # Prime the queue with a healthy buffer to prevent a gap.
-            for _ in range(10): # Prime with 200ms of audio
-                if self._is_queue_empty(): break
-                frame = self._generate_frame()
-                if frame:
-                    try: 
-                        self.processed_queue.put_nowait(frame)
-                    except queue.Full:
-                        break
-                else:
-                    break
-
-            # Wake up the main producer loop to continue the job.
+            # Wake up the main producer loop to start processing.
             self._items_in_queue.set()
     
     def set_volume(self, volume: int):
