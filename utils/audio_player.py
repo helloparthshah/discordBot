@@ -314,6 +314,17 @@ class AudioPlayer(threading.Thread):
             _log.info(f"Changing pitch to {newPitch}x")
             self.pitch = newPitch
             self._clear_processed_queue()
+            # Prime the queue to prevent a gap after changing pitch
+            for _ in range(10): # Prime with 200ms of audio
+                if self._is_queue_empty(): break
+                frame = self._generate_frame()
+                if frame:
+                    try:
+                        self.processed_queue.put_nowait(frame)
+                    except queue.Full:
+                        break
+                else:
+                    break
     
     def add_to_source_queue(self, newSound: AudioSegment, user: str):
         with self._lock:
@@ -332,16 +343,19 @@ class AudioPlayer(threading.Thread):
             
             # ** ATOMIC RE-BUFFERING **
             # This is the critical fix for the overlay delay.
-            # We clear the old buffer and immediately generate one or two new frames
+            # We clear the old buffer and immediately generate a healthy buffer of new frames
             # to ensure the consumer doesn't starve and play silence.
             self._clear_processed_queue()
             
-            # Prime the queue with 1-2 frames synchronously.
-            for _ in range(2):
+            # Prime the queue with a healthy buffer to prevent a gap.
+            for _ in range(10): # Prime with 200ms of audio
                 if self._is_queue_empty(): break
                 frame = self._generate_frame()
                 if frame:
-                    self.processed_queue.put(frame)
+                    try: 
+                        self.processed_queue.put_nowait(frame)
+                    except queue.Full:
+                        break
                 else:
                     break
 
