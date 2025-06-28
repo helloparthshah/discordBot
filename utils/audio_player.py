@@ -24,8 +24,8 @@ class AudioPlayer(threading.Thread):
     This class is a thread that continuously mixes audio from multiple sources
     and plays it back in a Discord voice channel.
 
-    It uses a producer-consumer model with a continuous stream buffer to ensure
-    perfectly seamless, click-free audio playback at any pitch.
+    It uses a producer-consumer model with a continuous stream buffer and
+    direct sample manipulation to ensure perfectly seamless, click-free audio playback.
     """
     DELAY: float = OpusEncoder.FRAME_LENGTH / 1000.0
     SAMPLES_PER_FRAME: int = OpusEncoder.SAMPLES_PER_FRAME
@@ -128,7 +128,8 @@ class AudioPlayer(threading.Thread):
     
     def _generate_processed_batch(self, duration_ms: int) -> Optional[AudioSegment]:
         """
-        Generates a batch of mixed and processed audio using sample-accurate slicing.
+        Generates a batch of mixed and processed audio using sample-accurate slicing
+        to prevent any rounding errors or drift.
         """
         with self._lock:
             if not self.userDict:
@@ -146,32 +147,34 @@ class AudioPlayer(threading.Thread):
             users_to_remove = set()
             for user, data in self.userDict.items():
                 segment: AudioSegment = data['segment']
-                progress_ms: float = data['progress_ms']
-                total_ms = len(segment)
+                all_samples = data['samples'] 
+                progress_samples: float = data['progress_samples']
+                total_samples = len(all_samples) // self.CHANNELS
 
-                if progress_ms < total_ms:
-                    start_ms = progress_ms
-                    end_ms = progress_ms + source_duration_to_process_ms
-                    
-                    # Get the raw sample array for the entire track
-                    all_samples = segment.get_array_of_samples()
-                    
-                    # Convert our precise ms progress to a sample index
-                    start_sample = int(start_ms * self.SAMPLING_RATE / 1000)
-                    end_sample = int(end_ms * self.SAMPLING_RATE / 1000)
-                    
-                    # Convert sample index to array index (for interleaved stereo)
-                    start_arr_idx = start_sample * self.CHANNELS
-                    end_arr_idx = end_sample * self.CHANNELS
+                if progress_samples < total_samples:
+                    # This is the precise number of source samples to process for this batch.
+                    source_samples_to_process_float = source_duration_to_process_ms * self.SAMPLING_RATE / 1000.0
 
-                    # Slice the raw sample array for perfect accuracy
+                    # ** THE DEFINITIVE FIX FOR SKIPPING/CLICKING **
+                    # Calculate start and end indices by rounding the precise float positions.
+                    # This prevents cumulative rounding errors.
+                    start_sample_idx = int(round(progress_samples))
+                    end_sample_idx = int(round(progress_samples + source_samples_to_process_float))
+
+                    # Convert sample indices to array indices (for interleaved stereo audio)
+                    start_arr_idx = start_sample_idx * self.CHANNELS
+                    end_arr_idx = end_sample_idx * self.CHANNELS
+                    
+                    # Slice the raw sample array. This is the most accurate method.
                     sample_slice = all_samples[start_arr_idx:end_arr_idx]
                     
                     if len(sample_slice) > 0:
+                        # Create a new, small AudioSegment from the perfect slice
                         current_chunk = segment._spawn(sample_slice)
                         mixed_batch = mixed_batch.overlay(current_chunk)
 
-                    data['progress_ms'] += source_duration_to_process_ms
+                    # Increment progress by the precise float amount of SAMPLES processed.
+                    data['progress_samples'] += source_samples_to_process_float
                 else:
                     users_to_remove.add(user)
             
@@ -193,10 +196,6 @@ class AudioPlayer(threading.Thread):
                     processed_batch = processed_batch.apply_gain(gain)
                 else:
                     processed_batch = AudioSegment.silent(duration=len(processed_batch))
-            
-            # Apply a micro-crossfade to the entire batch to smooth its edges
-            if len(processed_batch) > 2:
-                processed_batch = processed_batch.fade_in(1).fade_out(1)
 
             return processed_batch
         except Exception as e:
@@ -312,8 +311,15 @@ class AudioPlayer(threading.Thread):
 
         _log.debug(f"Adding new audio source for user {user} with length {len(newSound)}ms.")
         
+        # Get the raw sample data once and store it for efficient access.
+        samples = newSound.get_array_of_samples()
+        
         with self._lock:
-            self.userDict[user] = {'segment': newSound, 'progress_ms': 0.0}
+            self.userDict[user] = {
+                'segment': newSound, 
+                'samples': samples,
+                'progress_samples': 0.0
+            }
             self._sources_exist.set()
     
     def set_volume(self, volume: int):
