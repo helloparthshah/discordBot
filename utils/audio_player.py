@@ -150,8 +150,8 @@ class AudioPlayer(threading.Thread):
             # ** FINAL CLICKING FIX: Micro-crossfade **
             # Apply a tiny 1ms crossfade to the start and end of the frame.
             # This smooths the transition between frames, eliminating clicks caused by waveform discontinuities.
-            if len(processed_frame) > 2:
-                 processed_frame = processed_frame.fade_in(1).fade_out(1)
+            # if len(processed_frame) > 2:
+            #      processed_frame = processed_frame.fade_in(1).fade_out(1)
 
         except Exception as e:
             _log.error(f"Error during audio processing: {e}")
