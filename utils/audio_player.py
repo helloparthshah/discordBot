@@ -48,7 +48,8 @@ class AudioPlayer(threading.Thread):
         self._end: threading.Event = threading.Event()
         self._items_in_queue = threading.Event() # Signals the producer to start working
         self._items_in_queue.clear()
-        self._lock: threading.Lock = threading.Lock()
+        # Using a Re-entrant Lock is crucial for the synchronous re-buffering logic
+        self._lock: threading.RLock = threading.RLock()
 
         # Producer-Consumer queue. Holds perfectly-sized, ready-to-encode 20ms audio frames.
         self.processed_queue = queue.Queue(maxsize=50) 
@@ -192,6 +193,7 @@ class AudioPlayer(threading.Thread):
                     except queue.Full:
                         pass
                 else:
+                    # No more frames to generate from the current sources
                     break
             
             with self._lock:
@@ -307,9 +309,11 @@ class AudioPlayer(threading.Thread):
             return
         if newPitch == self.pitch:
             return
-        _log.info(f"Changing pitch to {newPitch}x")
-        self.pitch = newPitch
-        self._clear_processed_queue()
+        
+        with self._lock:
+            _log.info(f"Changing pitch to {newPitch}x")
+            self.pitch = newPitch
+            self._clear_processed_queue()
     
     def add_to_source_queue(self, newSound: AudioSegment, user: str):
         with self._lock:
@@ -325,7 +329,23 @@ class AudioPlayer(threading.Thread):
         
         with self._lock:
             self.userDict[user] = {'segment': newSound, 'progress_samples': 0}
+            
+            # ** ATOMIC RE-BUFFERING **
+            # This is the critical fix for the overlay delay.
+            # We clear the old buffer and immediately generate one or two new frames
+            # to ensure the consumer doesn't starve and play silence.
             self._clear_processed_queue()
+            
+            # Prime the queue with 1-2 frames synchronously.
+            for _ in range(2):
+                if self._is_queue_empty(): break
+                frame = self._generate_frame()
+                if frame:
+                    self.processed_queue.put(frame)
+                else:
+                    break
+
+            # Wake up the main producer loop to continue the job.
             self._items_in_queue.set()
     
     def set_volume(self, volume: int):

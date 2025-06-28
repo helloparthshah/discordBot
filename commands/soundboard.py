@@ -121,7 +121,7 @@ class SoundboardCommands(commands.Cog):
                 filename = self.saveFile(url, id)
         # join the voice channel and play the audio
 
-        await play(inter, AudioSegment.from_file(filename), str(inter.user.id) + str(id))
+        await play(inter, AudioSegment.from_file(filename), inter.user.id)
         print("finished sending sound")
 
     @app_commands.command(name="add_sound", description="Add a sound to the soundboard")
