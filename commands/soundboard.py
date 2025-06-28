@@ -121,7 +121,7 @@ class SoundboardCommands(commands.Cog):
                 filename = self.saveFile(url, id)
         # join the voice channel and play the audio
 
-        await play(inter, AudioSegment.from_file(filename), inter.user.id)
+        await play(inter, AudioSegment.from_file(filename), str(inter.user.id) + str(id))
         print("finished sending sound")
 
     @app_commands.command(name="add_sound", description="Add a sound to the soundboard")
@@ -314,9 +314,6 @@ class SoundboardCommands(commands.Cog):
     @app_commands.command(name="pitch", description="Set pitch of music player")
     async def update_pitch(self, inter: discord.Interaction, pitch: float):
         await inter.response.defer()
-        if pitch < 0.5 or pitch > 1.5:
-            await inter.followup.send("\U0000274C Pitch must be between 0.5 and 1.5")
-            return
         await self.set_soundboard_pitch(inter, pitch)
         await inter.followup.send(f"Set soundboard pitch to {pitch}")
     

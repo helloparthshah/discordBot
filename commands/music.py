@@ -1,5 +1,7 @@
 import asyncio
+from io import BytesIO
 import typing
+import requests
 from youtube_search import YoutubeSearch
 from pytubefix import YouTube
 import os
@@ -192,7 +194,8 @@ class MusicCommands(commands.Cog):
     async def play_file(self, inter: discord.Interaction, file: discord.Attachment):
         await inter.response.defer()
         print("Playing "+file.url)
-        audio = AudioSegment.from_file(file.url)
+        res = requests.get(file.url)
+        audio = AudioSegment.from_file(BytesIO(res.content), format=file.filename.split('.')[-1])
         await play(inter, audio, self.generate_music_identitiy(inter))
         await inter.followup.send("Playing file " + file.url)
     
