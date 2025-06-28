@@ -51,7 +51,7 @@ class AudioPlayer(threading.Thread):
         self._lock: threading.RLock = threading.RLock()
 
         # Queue for final, perfectly-sized raw audio frames
-        self.processed_queue = queue.Queue(maxsize=100) 
+        self.processed_queue = queue.Queue(maxsize=20) 
 
         self._current_error: Optional[Exception] = None
         
@@ -105,7 +105,6 @@ class AudioPlayer(threading.Thread):
             # 2. Slice 20ms frames from the continuous stream into the queue.
             while len(continuous_stream_buffer) >= 20:
                 if self.processed_queue.full():
-                    time.sleep(self.DELAY)
                     continue
 
                 frame = continuous_stream_buffer[:20]
@@ -184,8 +183,6 @@ class AudioPlayer(threading.Thread):
                 else:
                     processed_batch = AudioSegment.silent(duration=len(processed_batch))
             
-            # Removed the fade in/out as requested. The continuous stream model makes it unnecessary.
-
             return processed_batch
         except Exception as e:
             _log.error(f"Error during batch processing: {e}")
@@ -204,7 +201,7 @@ class AudioPlayer(threading.Thread):
         
         while not self._end.is_set():
             try:
-                frame_data = self.processed_queue.get(timeout=20.0)
+                frame_data = self.processed_queue.get()
                 
                 if not client.is_connected():
                     _log.warning('Voice client disconnected, consumer is pausing.')
