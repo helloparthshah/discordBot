@@ -25,7 +25,7 @@ class AudioPlayer(threading.Thread):
     and plays it back in a Discord voice channel.
 
     It uses a producer-consumer model with a continuous stream buffer and
-    direct sample manipulation to ensure perfectly seamless, click-free audio playback.
+    direct source audio consumption to ensure perfectly seamless, click-free playback.
     """
     DELAY: float = OpusEncoder.FRAME_LENGTH / 1000.0
     SAMPLES_PER_FRAME: int = OpusEncoder.SAMPLES_PER_FRAME
@@ -91,8 +91,8 @@ class AudioPlayer(threading.Thread):
                 break
 
             # 1. Refill the continuous stream buffer if it's running low.
-            if len(continuous_stream_buffer) < 100: # Maintain a buffer of at least 40ms
-                batch_to_add = self._generate_processed_batch(duration_ms=100)
+            if len(continuous_stream_buffer) < 40: # Maintain a buffer of at least 20ms
+                batch_to_add = self._generate_processed_batch(duration_ms=40)
                 if batch_to_add:
                     continuous_stream_buffer += batch_to_add
                 elif len(continuous_stream_buffer) == 0:
@@ -124,12 +124,13 @@ class AudioPlayer(threading.Thread):
                 try:
                     self.processed_queue.put(frame_data, block=False)
                 except queue.Full:
+                    continuous_stream_buffer = frame + continuous_stream_buffer
                     pass
     
     def _generate_processed_batch(self, duration_ms: int) -> Optional[AudioSegment]:
         """
-        Generates a batch of mixed and processed audio using sample-accurate slicing
-        to prevent any rounding errors or drift.
+        Generates a batch of mixed and processed audio by directly consuming the source
+        AudioSegments, which is the most robust way to prevent skipping.
         """
         with self._lock:
             if not self.userDict:
@@ -145,38 +146,23 @@ class AudioPlayer(threading.Thread):
             # 1. Mix a batch from all sources.
             mixed_batch = AudioSegment.silent(duration=source_duration_to_process_ms, frame_rate=self.SAMPLING_RATE)
             users_to_remove = set()
-            for user, data in self.userDict.items():
+            
+            # Use a copy of the items to iterate over, allowing safe modification of the dictionary
+            for user, data in list(self.userDict.items()):
                 segment: AudioSegment = data['segment']
-                # The raw sample data of the entire track.
-                all_samples = data['samples'] 
-                progress_samples: float = data['progress_samples']
-                total_samples = len(all_samples) // self.CHANNELS
 
-                if progress_samples < total_samples:
-                    # ** THE DEFINITIVE FIX FOR SKIPPING/CLICKING **
-                    # Calculate start and end indices by rounding the precise float positions.
-                    # This prevents cumulative rounding errors.
-                    start_sample_idx = int(round(progress_samples))
+                if len(segment) > 0:
+                    # Take a slice from the beginning of the source audio
+                    chunk_to_process = segment[:source_duration_to_process_ms]
+                    mixed_batch = mixed_batch.overlay(chunk_to_process)
                     
-                    # Calculate the number of samples to process in this batch
-                    source_samples_to_process_float = source_duration_to_process_ms * self.SAMPLING_RATE / 1000.0
-                    end_sample_idx = int(round(progress_samples + source_samples_to_process_float))
-
-                    # Convert sample indices to array indices (for interleaved stereo audio)
-                    start_arr_idx = start_sample_idx * self.CHANNELS
-                    end_arr_idx = end_sample_idx * self.CHANNELS
-                    
-                    # Slice the raw sample array. This is the most accurate method.
-                    sample_slice = all_samples[start_arr_idx:end_arr_idx]
-                    
-                    if len(sample_slice) > 0:
-                        # Create a new, small AudioSegment from the perfect slice
-                        current_chunk = segment._spawn(sample_slice)
-                        mixed_batch = mixed_batch.overlay(current_chunk)
-
-                    # Increment progress by the precise float amount of SAMPLES processed.
-                    data['progress_samples'] += source_samples_to_process_float
-                else:
+                    # ** THE DEFINITIVE FIX FOR SKIPPING **
+                    # Consume the source audio by replacing it with the remainder *immediately*.
+                    # This prevents state inconsistencies within the same batch.
+                    self.userDict[user]['segment'] = segment[source_duration_to_process_ms:]
+                
+                # Mark user for removal if their audio is fully consumed
+                if len(self.userDict[user]['segment']) == 0:
                     users_to_remove.add(user)
             
             for user in users_to_remove:
@@ -197,6 +183,8 @@ class AudioPlayer(threading.Thread):
                     processed_batch = processed_batch.apply_gain(gain)
                 else:
                     processed_batch = AudioSegment.silent(duration=len(processed_batch))
+            
+            # Removed the fade in/out as requested. The continuous stream model makes it unnecessary.
 
             return processed_batch
         except Exception as e:
@@ -216,7 +204,7 @@ class AudioPlayer(threading.Thread):
         
         while not self._end.is_set():
             try:
-                frame_data = self.processed_queue.get(timeout=0.1)
+                frame_data = self.processed_queue.get(timeout=20.0)
                 
                 if not client.is_connected():
                     _log.warning('Voice client disconnected, consumer is pausing.')
@@ -312,15 +300,8 @@ class AudioPlayer(threading.Thread):
 
         _log.debug(f"Adding new audio source for user {user} with length {len(newSound)}ms.")
         
-        # Get the raw sample data once and store it for efficient access.
-        samples = newSound.get_array_of_samples()
-        
         with self._lock:
-            self.userDict[user] = {
-                'segment': newSound, 
-                'samples': samples,
-                'progress_samples': 0.0
-            }
+            self.userDict[user] = {'segment': newSound}
             self._sources_exist.set()
     
     def set_volume(self, volume: int):
