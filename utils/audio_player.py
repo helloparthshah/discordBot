@@ -24,8 +24,8 @@ class AudioPlayer(threading.Thread):
     This class is a thread that continuously mixes audio from multiple sources
     and plays it back in a Discord voice channel.
 
-    It uses a producer-consumer model with sample-accurate dynamic slicing to ensure
-    click-free, pitch-shifted audio playback.
+    It uses a producer-consumer model with a continuous stream buffer to ensure
+    perfectly seamless, click-free audio playback at any pitch.
     """
     DELAY: float = OpusEncoder.FRAME_LENGTH / 1000.0
     SAMPLES_PER_FRAME: int = OpusEncoder.SAMPLES_PER_FRAME
@@ -46,12 +46,12 @@ class AudioPlayer(threading.Thread):
 
         # Core threading events and locks
         self._end: threading.Event = threading.Event()
-        self._items_in_queue = threading.Event() # Signals the producer to start working
-        self._items_in_queue.clear()
+        self._sources_exist = threading.Event()
+        self._sources_exist.clear()
         self._lock: threading.RLock = threading.RLock()
 
-        # Producer-Consumer queue. Holds perfectly-sized, ready-to-encode 20ms audio frames.
-        self.processed_queue = queue.Queue(maxsize=50) 
+        # Queue for final, perfectly-sized raw audio frames
+        self.processed_queue = queue.Queue(maxsize=100) 
 
         self._current_error: Optional[Exception] = None
         
@@ -76,142 +76,109 @@ class AudioPlayer(threading.Thread):
         self.producer_thread.start()
         super().start()
 
-    def _is_queue_empty(self) -> bool:
-        """Helper to check if the userDict is empty under lock."""
-        with self._lock:
-            return not self.userDict
-
-    def _generate_frame(self) -> Optional[bytes]:
-        """
-        The core of the producer. Generates a single, perfectly-sized 20ms frame.
-        This function is now based on sample counts, not milliseconds, to avoid float rounding errors.
-        """
-        try:
-            # 1. Calculate how many source samples are needed to produce one output frame (960 samples).
-            speed_multiplier = 2.0 ** (self.pitch - 1.0)
-            source_samples_to_process = int(round(self.SAMPLES_PER_FRAME * speed_multiplier))
-        except (ValueError, ZeroDivisionError):
-            source_samples_to_process = self.SAMPLES_PER_FRAME
-        
-        if source_samples_to_process <= 0:
-            return None
-
-        # 2. Mix a chunk of `source_samples_to_process` from all playing tracks.
-        mixed_chunk: Optional[AudioSegment] = None
-        with self._lock:
-            if self.userDict:
-                # We need to convert our sample-based progress into milliseconds for pydub's slicing.
-                source_duration_ms = source_samples_to_process * 1000.0 / self.SAMPLING_RATE
-                mixed_chunk = AudioSegment.silent(duration=source_duration_ms, frame_rate=self.SAMPLING_RATE)
-                
-                users_to_remove = set()
-                for user, data in self.userDict.items():
-                    segment: AudioSegment = data['segment']
-                    progress_samples: int = data['progress_samples']
-                    total_samples = len(segment.get_array_of_samples()) // self.CHANNELS
-
-                    if progress_samples < total_samples:
-                        # Convert sample indices to millisecond indices for pydub slicing
-                        start_ms = progress_samples * 1000.0 / self.SAMPLING_RATE
-                        end_ms = (progress_samples + source_samples_to_process) * 1000.0 / self.SAMPLING_RATE
-                        
-                        current_chunk = segment[start_ms:end_ms]
-                        
-                        mixed_chunk = mixed_chunk.overlay(current_chunk)
-                        data['progress_samples'] += source_samples_to_process
-                    else:
-                        users_to_remove.add(user)
-                
-                for user in users_to_remove:
-                    del self.userDict[user]
-        
-        if mixed_chunk is None or len(mixed_chunk) == 0:
-            return None
-
-        # 3. Apply effects to the mixed chunk.
-        try:
-            # Apply pitch shifting by changing the frame rate.
-            if self.pitch != 1.0:
-                new_sample_rate = int(mixed_chunk.frame_rate * speed_multiplier)
-                pitched_sound = mixed_chunk._spawn(mixed_chunk.raw_data, overrides={'frame_rate': new_sample_rate})
-                processed_frame = pitched_sound.set_frame_rate(self.SAMPLING_RATE)
-            else:
-                processed_frame = mixed_chunk
-
-            # Apply volume
-            if self.volume != 100:
-                if self.volume > 0:
-                    gain = 20 * math.log10(self.volume / 100.0)
-                    processed_frame = processed_frame.apply_gain(gain)
-                else:
-                    processed_frame = AudioSegment.silent(duration=20)
-            
-            # ** FINAL CLICKING FIX: Micro-crossfade **
-            # Apply a tiny 1ms crossfade to the start and end of the frame.
-            # This smooths the transition between frames, eliminating clicks caused by waveform discontinuities.
-            if self.pitch != 1.0:
-                if len(processed_frame) > 2:  # Ensure there's enough data to crossfade
-                    processed_frame = processed_frame.fade_in(1).fade_out(1)
-
-        except Exception as e:
-            _log.error(f"Error during audio processing: {e}")
-            return None
-        
-        # 4. Sanitize the final frame to ensure it's exactly the right size.
-        expected_bytes = self.SAMPLES_PER_FRAME * self.CHANNELS * self.SAMPLE_WIDTH
-        frame_data = processed_frame.raw_data
-        current_bytes = len(frame_data)
-        
-        if current_bytes < expected_bytes:
-            frame_data += b'\x00' * (expected_bytes - current_bytes)
-        elif current_bytes > expected_bytes:
-            frame_data = frame_data[:expected_bytes]
-            
-        return frame_data
-
     def _producer_loop(self) -> None:
         """
         The "producer" part of the pattern.
-        This loop continuously generates frames and puts them in the queue.
+        Its job is to maintain a continuous stream of processed audio
+        and slice 20ms frames from it into the processed_queue.
         """
-        while not self._end.is_set():
-            self._items_in_queue.wait()
+        # This buffer holds the continuous stream of mixed and processed audio.
+        continuous_stream_buffer = AudioSegment.empty()
 
-            while not self._is_queue_empty():
-                if self._end.is_set():
-                    break
-                
+        while not self._end.is_set():
+            self._sources_exist.wait()
+
+            if self._end.is_set():
+                break
+
+            # 1. Refill the continuous stream buffer if it's running low.
+            if len(continuous_stream_buffer) < 500: # Maintain a buffer of at least 500ms
+                batch_to_add = self._generate_processed_batch(duration_ms=500)
+                if batch_to_add:
+                    continuous_stream_buffer += batch_to_add
+                elif len(continuous_stream_buffer) == 0:
+                    # No more audio to process, wait for new sources
+                    with self._lock:
+                        if not self.userDict:
+                           self._sources_exist.clear()
+                    continue
+
+            # 2. Slice 20ms frames from the continuous stream into the queue.
+            while len(continuous_stream_buffer) >= 20:
                 if self.processed_queue.full():
                     time.sleep(self.DELAY)
                     continue
 
-                frame_data = self._generate_frame()
+                frame = continuous_stream_buffer[:20]
+                continuous_stream_buffer = continuous_stream_buffer[20:]
                 
-                if frame_data:
-                    try:
-                        self.processed_queue.put(frame_data, block=False)
-                    except queue.Full:
-                        pass
-                else:
-                    # No more frames to generate from the current sources
-                    break
-            
-            with self._lock:
-                if not self.userDict:
-                    self._items_in_queue.clear()
+                # Sanitize the final frame to ensure it's exactly the right size.
+                expected_bytes = self.SAMPLES_PER_FRAME * self.CHANNELS * self.SAMPLE_WIDTH
+                frame_data = frame.raw_data
+                current_bytes = len(frame_data)
+                
+                if current_bytes < expected_bytes:
+                    frame_data += b'\x00' * (expected_bytes - current_bytes)
+                elif current_bytes > expected_bytes:
+                    frame_data = frame_data[:expected_bytes]
 
-    def _clear_processed_queue(self):
-        """Safely empties the processed queue."""
-        while not self.processed_queue.empty():
-            try:
-                self.processed_queue.get_nowait()
-            except queue.Empty:
-                break
+                try:
+                    self.processed_queue.put(frame_data, block=False)
+                except queue.Full:
+                    pass
+    
+    def _generate_processed_batch(self, duration_ms: int) -> Optional[AudioSegment]:
+        """
+        Generates a batch of mixed and processed audio. This is the core of the new architecture.
+        """
+        with self._lock:
+            if not self.userDict:
+                return None
+            
+            # 1. Mix a batch from all sources.
+            mixed_batch = AudioSegment.silent(duration=duration_ms, frame_rate=self.SAMPLING_RATE)
+            users_to_remove = set()
+            for user, data in self.userDict.items():
+                segment: AudioSegment = data['segment']
+                progress_ms: float = data['progress_ms']
+                total_ms = len(segment)
+
+                if progress_ms < total_ms:
+                    start_ms = progress_ms
+                    end_ms = progress_ms + duration_ms
+                    current_chunk = segment[start_ms:end_ms]
+                    mixed_batch = mixed_batch.overlay(current_chunk)
+                    data['progress_ms'] += duration_ms
+                else:
+                    users_to_remove.add(user)
+            
+            for user in users_to_remove:
+                del self.userDict[user]
+        
+        # 2. Apply effects to the entire batch at once.
+        try:
+            processed_batch = mixed_batch
+            if self.pitch != 1.0:
+                speed_multiplier = 2.0 ** (self.pitch - 1.0)
+                new_sample_rate = int(processed_batch.frame_rate * speed_multiplier)
+                pitched_sound = processed_batch._spawn(processed_batch.raw_data, overrides={'frame_rate': new_sample_rate})
+                processed_batch = pitched_sound.set_frame_rate(self.SAMPLING_RATE)
+
+            if self.volume != 100:
+                if self.volume > 0:
+                    gain = 20 * math.log10(self.volume / 100.0)
+                    processed_batch = processed_batch.apply_gain(gain)
+                else:
+                    processed_batch = AudioSegment.silent(duration=len(processed_batch))
+
+            return processed_batch
+        except Exception as e:
+            _log.error(f"Error during batch processing: {e}")
+            return None
 
     def _do_run(self) -> None:
         """
-        The "consumer" part of the pattern.
-        This loop sends audio from the processed_queue to Discord at a precise interval.
+        The "consumer" part of the pattern. Now extremely simple.
         """
         client = self.client
         play_audio = client.send_audio_packet
@@ -245,7 +212,6 @@ class AudioPlayer(threading.Thread):
             except Exception as e:
                 _log.error(f"Error in consumer loop: {e}")
 
-
     def run(self) -> None:
         try:
             self._do_run()
@@ -259,30 +225,27 @@ class AudioPlayer(threading.Thread):
     def stop(self):
         """Stops the player and clears all queues."""
         self._end.set()
-        self._items_in_queue.set()
+        self._sources_exist.set()
         with self._lock:
             self.userDict.clear()
             self.pausedUserDict.clear()
-            self._clear_processed_queue()
         _log.info("AudioPlayer stop called.")
     
     def stop_user(self, user: str):
         with self._lock:
             self.userDict.pop(user, None)
             self.pausedUserDict.pop(user, None)
-            self._clear_processed_queue()
             
     def pause_user(self, user: str):
         with self._lock:
             if user in self.userDict:
                 self.pausedUserDict[user] = self.userDict.pop(user)
-                self._clear_processed_queue()
     
     def resume_user(self, user: str):
         with self._lock:
             if user in self.pausedUserDict:
                 self.userDict[user] = self.pausedUserDict.pop(user)
-                self._items_in_queue.set()
+                self._sources_exist.set()
 
     def _speak(self, speaking: SpeakingState) -> None:
         try:
@@ -292,7 +255,6 @@ class AudioPlayer(threading.Thread):
             _log.exception("Speaking call in player failed")
 
     def send_silence(self, count: int = 1) -> None:
-        """Sends a few frames of silence to clear buffers."""
         try:
             for _ in range(count):
                 self.client.send_audio_packet(OPUS_SILENCE, encode=False)
@@ -327,16 +289,8 @@ class AudioPlayer(threading.Thread):
         _log.debug(f"Adding new audio source for user {user} with length {len(newSound)}ms.")
         
         with self._lock:
-            self.userDict[user] = {'segment': newSound, 'progress_samples': 0}
-            
-            # ** SEAMLESS OVERLAY LOGIC **
-            # By NOT clearing the buffer, we ensure there are no gaps.
-            # The producer will naturally start mixing in the new sound
-            # as it generates frames, resulting in a slight (but seamless) delay
-            # before the new overlay is heard.
-            
-            # Wake up the main producer loop to start processing.
-            self._items_in_queue.set()
+            self.userDict[user] = {'segment': newSound, 'progress_ms': 0.0}
+            self._sources_exist.set()
     
     def set_volume(self, volume: int):
         self.volume = max(0, min(200, volume))
