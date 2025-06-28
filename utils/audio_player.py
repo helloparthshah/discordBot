@@ -51,7 +51,7 @@ class AudioPlayer(threading.Thread):
         self._lock: threading.RLock = threading.RLock()
 
         # Queue for final, perfectly-sized raw audio frames
-        self.processed_queue = queue.Queue(maxsize=20) 
+        self.processed_queue = queue.Queue(maxsize=100) 
 
         self._current_error: Optional[Exception] = None
         
