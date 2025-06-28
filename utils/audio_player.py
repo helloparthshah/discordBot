@@ -91,8 +91,8 @@ class AudioPlayer(threading.Thread):
                 break
 
             # 1. Refill the continuous stream buffer if it's running low.
-            if len(continuous_stream_buffer) < 200: # Maintain a buffer of at least 200ms
-                batch_to_add = self._generate_processed_batch(duration_ms=200)
+            if len(continuous_stream_buffer) < 20: # Maintain a buffer of at least 40ms
+                batch_to_add = self._generate_processed_batch(duration_ms=20)
                 if batch_to_add:
                     continuous_stream_buffer += batch_to_add
                 elif len(continuous_stream_buffer) == 0:
