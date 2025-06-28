@@ -82,7 +82,6 @@ class AudioPlayer(threading.Thread):
         Its job is to maintain a continuous stream of processed audio
         and slice 20ms frames from it into the processed_queue.
         """
-        # This buffer holds the continuous stream of mixed and processed audio.
         continuous_stream_buffer = AudioSegment.empty()
 
         while not self._end.is_set():
@@ -92,8 +91,8 @@ class AudioPlayer(threading.Thread):
                 break
 
             # 1. Refill the continuous stream buffer if it's running low.
-            if len(continuous_stream_buffer) < 100: # Maintain a buffer of at least 500ms
-                batch_to_add = self._generate_processed_batch(duration_ms=100)
+            if len(continuous_stream_buffer) < 200: # Maintain a buffer of at least 200ms
+                batch_to_add = self._generate_processed_batch(duration_ms=200)
                 if batch_to_add:
                     continuous_stream_buffer += batch_to_add
                 elif len(continuous_stream_buffer) == 0:
@@ -129,14 +128,21 @@ class AudioPlayer(threading.Thread):
     
     def _generate_processed_batch(self, duration_ms: int) -> Optional[AudioSegment]:
         """
-        Generates a batch of mixed and processed audio. This is the core of the new architecture.
+        Generates a batch of mixed and processed audio using sample-accurate slicing.
         """
         with self._lock:
             if not self.userDict:
                 return None
             
+            # Determine the duration of source audio to read based on pitch
+            try:
+                speed_multiplier = 2.0 ** (self.pitch - 1.0)
+                source_duration_to_process_ms = duration_ms * speed_multiplier
+            except (ValueError, ZeroDivisionError):
+                source_duration_to_process_ms = float(duration_ms)
+
             # 1. Mix a batch from all sources.
-            mixed_batch = AudioSegment.silent(duration=duration_ms, frame_rate=self.SAMPLING_RATE)
+            mixed_batch = AudioSegment.silent(duration=source_duration_to_process_ms, frame_rate=self.SAMPLING_RATE)
             users_to_remove = set()
             for user, data in self.userDict.items():
                 segment: AudioSegment = data['segment']
@@ -145,10 +151,27 @@ class AudioPlayer(threading.Thread):
 
                 if progress_ms < total_ms:
                     start_ms = progress_ms
-                    end_ms = progress_ms + duration_ms
-                    current_chunk = segment[start_ms:end_ms]
-                    mixed_batch = mixed_batch.overlay(current_chunk)
-                    data['progress_ms'] += duration_ms
+                    end_ms = progress_ms + source_duration_to_process_ms
+                    
+                    # Get the raw sample array for the entire track
+                    all_samples = segment.get_array_of_samples()
+                    
+                    # Convert our precise ms progress to a sample index
+                    start_sample = int(start_ms * self.SAMPLING_RATE / 1000)
+                    end_sample = int(end_ms * self.SAMPLING_RATE / 1000)
+                    
+                    # Convert sample index to array index (for interleaved stereo)
+                    start_arr_idx = start_sample * self.CHANNELS
+                    end_arr_idx = end_sample * self.CHANNELS
+
+                    # Slice the raw sample array for perfect accuracy
+                    sample_slice = all_samples[start_arr_idx:end_arr_idx]
+                    
+                    if len(sample_slice) > 0:
+                        current_chunk = segment._spawn(sample_slice)
+                        mixed_batch = mixed_batch.overlay(current_chunk)
+
+                    data['progress_ms'] += source_duration_to_process_ms
                 else:
                     users_to_remove.add(user)
             
@@ -170,6 +193,10 @@ class AudioPlayer(threading.Thread):
                     processed_batch = processed_batch.apply_gain(gain)
                 else:
                     processed_batch = AudioSegment.silent(duration=len(processed_batch))
+            
+            # Apply a micro-crossfade to the entire batch to smooth its edges
+            if len(processed_batch) > 2:
+                processed_batch = processed_batch.fade_in(1).fade_out(1)
 
             return processed_batch
         except Exception as e:
@@ -252,7 +279,7 @@ class AudioPlayer(threading.Thread):
             if self.client.client.loop.is_running():
                 asyncio.run_coroutine_threadsafe(self.client.ws.speak(speaking), self.client.client.loop)
         except Exception:
-            _log.exception("Speaking call in player failed")
+            pass
 
     def send_silence(self, count: int = 1) -> None:
         try:
@@ -267,7 +294,6 @@ class AudioPlayer(threading.Thread):
     
     def change_pitch(self, newPitch: float):
         if not (0.25 <= newPitch <= 4.0):
-            _log.warning(f"Pitch value {newPitch} is outside the recommended range (0.25-4.0).")
             return
         if newPitch == self.pitch:
             return
@@ -281,9 +307,7 @@ class AudioPlayer(threading.Thread):
             if user in self.pausedUserDict:
                 self.pausedUserDict.pop(user)
 
-        if newSound.frame_rate != 48000 or newSound.channels != 2 or newSound.sample_width != 2:
-            newSound = newSound.set_frame_rate(48000).set_channels(2).set_sample_width(2)
-        
+        newSound = newSound.set_frame_rate(48000).set_channels(2).set_sample_width(2)
         newSound = effects.normalize(newSound)
 
         _log.debug(f"Adding new audio source for user {user} with length {len(newSound)}ms.")
@@ -294,7 +318,6 @@ class AudioPlayer(threading.Thread):
     
     def set_volume(self, volume: int):
         self.volume = max(0, min(200, volume))
-        _log.info(f"Master volume set to {self.volume}%")
 
 # --- Global Bot State Management ---
 
@@ -310,7 +333,6 @@ encoder = discord.opus.Encoder(
 )
 
 async def init_voice_client(inter: discord.Interaction) -> bool:
-    """Ensures the bot is connected to the user's voice channel and the player is running."""
     guild = inter.guild
     if not guild: return False
     if not isinstance(inter.user, discord.Member) or not inter.user.voice or not inter.user.voice.channel:
