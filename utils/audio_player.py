@@ -101,6 +101,16 @@ class AudioPlayer(threading.Thread):
                         if not self.userDict:
                            self._sources_exist.clear()
                     continue
+                else:
+                    # output the remaining buffer if it's not empty
+                    if len(continuous_stream_buffer) > 0:
+                        try:
+                            self.output_processed_frame(continuous_stream_buffer)
+                            continuous_stream_buffer = AudioSegment.empty()
+                        except queue.Full:
+                            print("Processed queue is full, skipping frame.")
+                            pass
+                        
 
             # 2. Slice 20ms frames from the continuous stream into the queue.
             while len(continuous_stream_buffer) >= 20:
@@ -109,22 +119,25 @@ class AudioPlayer(threading.Thread):
 
                 frame = continuous_stream_buffer[:20]
                 continuous_stream_buffer = continuous_stream_buffer[20:]
-                
-                # Sanitize the final frame to ensure it's exactly the right size.
-                expected_bytes = self.SAMPLES_PER_FRAME * self.CHANNELS * self.SAMPLE_WIDTH
-                frame_data = frame.raw_data
-                current_bytes = len(frame_data)
-                
-                if current_bytes < expected_bytes:
-                    frame_data += b'\x00' * (expected_bytes - current_bytes)
-                elif current_bytes > expected_bytes:
-                    frame_data = frame_data[:expected_bytes]
-
                 try:
-                    self.processed_queue.put(frame_data, block=False)
+                    self.output_processed_frame(frame)
                 except queue.Full:
+                    print("Processed queue is full, skipping frame.")
                     continuous_stream_buffer = frame + continuous_stream_buffer
                     pass
+                
+                # Sanitize the final frame to ensure it's exactly the right size.
+    def output_processed_frame(self, frame: AudioSegment) -> None:
+        expected_bytes = self.SAMPLES_PER_FRAME * self.CHANNELS * self.SAMPLE_WIDTH
+        frame_data = frame.raw_data
+        current_bytes = len(frame_data)
+        
+        if current_bytes < expected_bytes:
+            frame_data += b'\x00' * (expected_bytes - current_bytes)
+        elif current_bytes > expected_bytes:
+            frame_data = frame_data[:expected_bytes]
+
+        self.processed_queue.put(frame_data, block=False)
     
     def _generate_processed_batch(self, duration_ms: int) -> Optional[AudioSegment]:
         """
@@ -133,14 +146,18 @@ class AudioPlayer(threading.Thread):
         """
         with self._lock:
             if not self.userDict:
+                print("No audio sources available, waiting for new sources.")
                 return None
             
             # Determine the duration of source audio to read based on pitch
             try:
-                speed_multiplier = 2.0 ** (self.pitch - 1.0)
-                source_duration_to_process_ms = duration_ms * speed_multiplier
+                new_sample_rate = self.SAMPLING_RATE * (2.0 ** (self.pitch - 1.0))
+                speed_multiplier = new_sample_rate / self.SAMPLING_RATE
+                source_duration_to_process_ms = (duration_ms * speed_multiplier)
             except (ValueError, ZeroDivisionError):
+                print(f"Invalid pitch value {self.pitch}, using default duration.")
                 source_duration_to_process_ms = float(duration_ms)
+            
 
             # 1. Mix a batch from all sources.
             mixed_batch = AudioSegment.silent(duration=source_duration_to_process_ms, frame_rate=self.SAMPLING_RATE)
@@ -171,11 +188,8 @@ class AudioPlayer(threading.Thread):
         try:
             processed_batch = mixed_batch
             if self.pitch != 1.0:
-                speed_multiplier = 2.0 ** (self.pitch - 1.0)
-                new_sample_rate = int(processed_batch.frame_rate * speed_multiplier)
-                pitched_sound = processed_batch._spawn(processed_batch.raw_data, overrides={'frame_rate': new_sample_rate})
+                pitched_sound = processed_batch._spawn(processed_batch.raw_data, overrides={'frame_rate': math.floor(new_sample_rate)})
                 processed_batch = pitched_sound.set_frame_rate(self.SAMPLING_RATE)
-
             if self.volume != 100:
                 if self.volume > 0:
                     gain = 20 * math.log10(self.volume / 100.0)
@@ -185,7 +199,7 @@ class AudioPlayer(threading.Thread):
             
             return processed_batch
         except Exception as e:
-            _log.error(f"Error during batch processing: {e}")
+            print(f"Error processing audio batch: {e}")
             return None
 
     def _do_run(self) -> None:
@@ -298,6 +312,7 @@ class AudioPlayer(threading.Thread):
         _log.debug(f"Adding new audio source for user {user} with length {len(newSound)}ms.")
         
         with self._lock:
+            self._sources_exist.clear()
             self.userDict[user] = {'segment': newSound}
             self._sources_exist.set()
     
@@ -332,7 +347,7 @@ async def init_voice_client(inter: discord.Interaction) -> bool:
         await guild.voice_client.move_to(user_channel)
 
     if guild not in audioVolume:
-        audioVolume[guild] = 100
+        audioVolume[guild] = 20
 
     if (guild not in audioClients or
             not audioClients[guild].is_alive() or
