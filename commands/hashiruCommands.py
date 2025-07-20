@@ -1,6 +1,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+import requests
 
 class HashiruCommands(commands.Cog):
     def __init__(self, bot):
@@ -15,6 +16,27 @@ class HashiruCommands(commands.Cog):
     async def update_deafened_channel(self, inter: discord.Interaction, channel: discord.VoiceChannel):
         self.deafened_channel[inter.guild.id] = channel.id
         await inter.response.send_message("Updated the channel to move deafened users")
+    
+    @app_commands.command(name="chat", description="Chat with LLMs")
+    @app_commands.describe(
+        prompt="The prompt to send to the LLM",
+    )
+    async def update_deafened_channel(self, inter: discord.Interaction, prompt: str):
+        await inter.response.defer()
+        url = "http://10.0.0.40:5678/webhook/aa1cd686-c3a6-41b7-b274-b9fce73b40fa"
+        body = {
+            "prompt": prompt,
+            "server": inter.guild.id,
+        }
+        response = requests.post(url, json=body)
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("error"):
+                await inter.followup.send(f"Error: {data['error']}")
+            else:
+                await inter.followup.send(data["response"])
+        else:
+            await inter.followup.send("Error: Unable to connect to the LLM server")
     
     @commands.Cog.listener()
     async def on_voice_state_update(self, member, before, after):
