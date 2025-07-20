@@ -34,7 +34,12 @@ class HashiruCommands(commands.Cog):
             if data.get("error"):
                 await inter.followup.send(f"Error: {data['error']}")
             else:
-                await inter.followup.send(data["response"])
+                # split into chunks of 2000 characters
+                response_text = data.get("response", "")
+                chunks = [response_text[i:i + 2000] for i in range(0, len(response_text), 2000)]
+                for chunk in chunks:
+                    if len(chunk) > 0:
+                        await inter.followup.send(chunk)
         else:
             await inter.followup.send("Error: Unable to connect to the LLM server")
     
