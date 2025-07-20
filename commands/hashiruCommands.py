@@ -27,6 +27,7 @@ class HashiruCommands(commands.Cog):
         body = {
             "prompt": prompt,
             "server": inter.guild.id,
+            "user": inter.user.name
         }
         response = requests.post(url, json=body)
         if response.status_code == 200:
