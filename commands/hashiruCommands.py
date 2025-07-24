@@ -21,7 +21,7 @@ class HashiruCommands(commands.Cog):
     @app_commands.describe(
         prompt="The prompt to send to the LLM",
     )
-    async def update_deafened_channel(self, inter: discord.Interaction, prompt: str):
+    async def chat(self, inter: discord.Interaction, prompt: str):
         await inter.response.defer()
         url = "http://10.0.0.40:5678/webhook/aa1cd686-c3a6-41b7-b274-b9fce73b40fa"
         body = {
