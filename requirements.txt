@@ -1,6 +1,6 @@
-discord.py==2.4.0
-discord-py[voice]==2.4.0
-discord_py_interactions==5.13.2
+discord.py==2.7.1
+discord-py[voice]==2.7.1
+discord_py_interactions==5.16.0
 discord_py_slash_command==4.2.1
 Pillow==10.3.0
 python-dotenv==1.0.1
@@ -8,7 +8,7 @@ python-dotenv==1.0.1
 pytubefix==8.13.1
 Requests==2.32.3
 google-generativeai
-discord.py-interactions[voice]==5.13.2
+discord.py-interactions[voice]==5.16.0
 youtube-search==2.1.2
 pymongo==4.9.1
 pydub==0.25.1
