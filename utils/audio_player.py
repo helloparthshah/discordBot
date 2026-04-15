@@ -340,13 +340,16 @@ encoder = discord.opus.Encoder(
 
 async def init_voice_client(inter: discord.Interaction) -> bool:
     guild = inter.guild
-    if not guild: return False
+    if not guild:
+        return False
+        
     if not isinstance(inter.user, discord.Member) or not inter.user.voice or not inter.user.voice.channel:
         await inter.response.send_message("You need to be in a voice channel to use this command.", ephemeral=True)
         return False
 
     user_channel = inter.user.voice.channel
-    
+
+    # Connect or move to the correct channel
     if guild.voice_client is None:
         await user_channel.connect()
     elif guild.voice_client.channel != user_channel:
@@ -355,19 +358,26 @@ async def init_voice_client(inter: discord.Interaction) -> bool:
     if guild not in audioVolume:
         audioVolume[guild] = 20
 
-    if (guild not in audioClients or
-            not audioClients[guild].is_alive() or
-            not audioClients[guild].producer_thread.is_alive()):
+    # Grab the current, active VoiceClient object
+    vc = typing.cast(VoiceClient, guild.voice_client)
+
+    # Check if we need to replace the player
+    player_exists = guild in audioClients
+    
+    # We replace the player if it's dead, OR if it's attached to an old/kicked connection
+    if (not player_exists or 
+        not audioClients[guild].is_alive() or 
+        not audioClients[guild].producer_thread.is_alive() or 
+        audioClients[guild].client != vc): # <--- THIS IS THE FIX
         
-        if guild in audioClients and (audioClients[guild].is_alive() or audioClients[guild].producer_thread.is_alive()):
-            audioClients[guild].stop()
-        
+        if player_exists:
+            audioClients[guild].stop() # Tell the zombie thread to shut down
+
         _log.info(f"Initializing new AudioPlayer for guild {guild.id}")
-        vc = typing.cast(VoiceClient, guild.voice_client)
         audioClients[guild] = AudioPlayer(vc, encoder)
         audioClients[guild].start()
         audioClients[guild].set_volume(audioVolume[guild])
-        
+
     return True
 
 async def play(inter: discord.Interaction, sound: AudioSegment, identifier: str):
