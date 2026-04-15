@@ -203,16 +203,15 @@ class AudioPlayer(threading.Thread):
             return None
 
     def _do_run(self) -> None:
-        """
-        The "consumer" part of the pattern. Now extremely simple.
-        """
+        """ The "consumer" part of the pattern. Now extremely simple. """
         client = self.client
         play_audio = client.send_audio_packet
         self._speak(SpeakingState.voice)
 
         startTimer = time.perf_counter()
         loops = 0
-        
+        was_idle = False # <--- 1. Add this flag
+
         while not self._end.is_set():
             try:
                 frame_data = self.processed_queue.get(timeout=0.1)
@@ -223,17 +222,24 @@ class AudioPlayer(threading.Thread):
                     _log.info('Reconnected successfully, consumer is resuming.')
                     startTimer = time.perf_counter()
                     loops = 0
-                
+
+                # ---> 2. Reset the timer if we just came back from being idle <---
+                if was_idle:
+                    startTimer = time.perf_counter()
+                    loops = 0
+                    was_idle = False 
+
                 loops += 1
                 opusData = self.encoder.encode(frame_data, self.SAMPLES_PER_FRAME)
                 play_audio(opusData, encode=False)
-                
+
                 next_tick = startTimer + (self.DELAY * loops)
                 delay = max(0, next_tick - time.perf_counter())
                 time.sleep(delay)
 
             except queue.Empty:
                 self.send_silence(1)
+                was_idle = True # <--- 3. Set the flag when the queue runs dry
                 continue
             except Exception as e:
                 _log.error(f"Error in consumer loop: {e}")
