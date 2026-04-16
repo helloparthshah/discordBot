@@ -8,6 +8,8 @@ import traceback
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
+USER_ID_THUMBS_DOWN = 375859366395641858
+USER_ID_CHUS = 347605620012351488
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -40,6 +42,20 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     traceback.print_exception(error)
     if not ctx.responded:
         await ctx.send_message("Something went wrong.")
+
+
+@bot.event
+async def on_message(message: discord.Message) -> None:
+    if message.author.bot:
+        return
+
+    if message.author.id == USER_ID_THUMBS_DOWN:
+        await message.add_reaction("👎")
+    elif message.author.id == USER_ID_CHUS:
+        for emoji in ("🇨", "🇭", "🇺", "🇸"):
+            await message.add_reaction(emoji)
+
+    await bot.process_commands(message)
 
 
 # @listen()
