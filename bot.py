@@ -38,6 +38,16 @@ async def on_command_error(event: CommandError):
 
 @listen()
 async def on_message_create(event):
+    if event.message.author.bot:
+        return
+
+    author_id = event.message.author.id
+    if author_id == 375859366395641858:
+        await event.message.add_reaction("👎")
+    elif author_id == 347605620012351488:
+        for emoji in ["🇨", "🇭", "🇺", "🇸"]:
+            await event.message.add_reaction(emoji)
+
     mention = str(bot.user.id)
     if mention in event.message.content:
         embed = interactions.Embed(
