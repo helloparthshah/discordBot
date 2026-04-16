@@ -42,6 +42,18 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
         await ctx.send_message("Something went wrong.")
 
 
+@bot.event
+async def on_message(message: discord.Message) -> None:
+    if message.author.bot:
+        return
+
+    if message.author.id == 375859366395641858:
+        await message.add_reaction("👎")
+    elif message.author.id == 347605620012351488:
+        for emoji in ("🇨", "🇭", "🇺", "🇸"):
+            await message.add_reaction(emoji)
+
+
 # @listen()
 # async def on_message_create(event):
 #     mention = str(bot.user.id)
