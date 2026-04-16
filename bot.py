@@ -3,7 +3,6 @@ import os
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
-import os
 import traceback
 import random
 
@@ -33,6 +32,10 @@ KEYCAP_DIGIT_EMOJI = {
     "9": "9️⃣",
 }
 
+SYMBOL_REACTION_EMOJI = {
+    ".": "▪️",
+}
+
 REGIONAL_INDICATOR_A = ord("🇦")
 
 intents = discord.Intents.default()
@@ -50,8 +53,10 @@ def to_reaction_emojis(text: str) -> list[str]:
             emojis.append(chr(REGIONAL_INDICATOR_A + (ord(char) - ord("A"))))
         elif char in KEYCAP_DIGIT_EMOJI:
             emojis.append(KEYCAP_DIGIT_EMOJI[char])
-        elif char == ".":
-            emojis.append("▪️")
+        elif char in SYMBOL_REACTION_EMOJI:
+            emojis.append(SYMBOL_REACTION_EMOJI[char])
+        elif char == " ":
+            continue
     return emojis
 
 @bot.event
