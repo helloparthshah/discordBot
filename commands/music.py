@@ -8,11 +8,41 @@ import os
 import discord
 from discord import Embed, app_commands
 from discord.ext import commands
-from utils.audio_player import play, is_playing, stop_user, pause_user, resume_user
+from utils.audio_player import (play, is_playing, is_paused, remaining_ms,
+                                stop_user, pause_user, resume_user)
 from pydub import AudioSegment
 from discord.ui.select import BaseSelect
 
 music_queue = {}
+now_playing = {}
+
+# How often the Now Playing embed redraws its progress bar, in seconds.
+PROGRESS_REFRESH = 10
+
+
+def build_song(url, requester) -> "MusicQueueSong":
+    """Create a song and warm its metadata. pytubefix fetches lazily on first
+    attribute access, so touch it here — this runs in a worker thread."""
+    song = MusicQueueSong(url, requester)
+    song.yt.title
+    return song
+
+
+def format_duration(seconds) -> str:
+    seconds = max(0, int(seconds or 0))
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"
+
+
+def progress_bar(elapsed_ms: float, total_ms: float, length: int = 14) -> str:
+    if not total_ms:
+        return "▬" * length
+    fraction = min(1.0, max(0.0, elapsed_ms / total_ms))
+    knob = min(length - 1, int(fraction * length))
+    return "▬" * knob + "🔘" + "▬" * (length - knob - 1)
 
 class BaseView(discord.ui.View):
     interaction: discord.Interaction | None = None
@@ -41,13 +71,127 @@ class BaseView(discord.ui.View):
 
 
 class MusicQueueSong:
-    def __init__(self, url):
+    def __init__(self, url, requester: discord.abc.User = None):
         self.url = url
+        self.requester = requester
         # The WEB client needs a poToken (botGuard/node) to get playable stream
         # urls; without it YouTube returns streams with no url and pytubefix
         # blows up with UnboundLocalError. ANDROID_VR (pytubefix's default)
         # doesn't require one.
         self.yt = YouTube(url)
+
+
+class MusicPlayerView(BaseView):
+    """The Now Playing message: an embed that redraws its own progress bar,
+    plus the transport controls."""
+
+    def __init__(self, cog: "MusicCommands", inter: discord.Interaction,
+                 song: MusicQueueSong, total_ms: int):
+        super().__init__()
+        self.cog = cog
+        self.origin = inter
+        self.song = song
+        self.total_ms = total_ms
+        self.identifier = cog.generate_music_identitiy(inter)
+        self.started = False
+        self.finished = False
+
+    # --- rendering -------------------------------------------------------
+
+    @property
+    def paused(self) -> bool:
+        return is_paused(self.origin, self.identifier)
+
+    def elapsed_ms(self) -> int:
+        left = remaining_ms(self.origin, self.identifier)
+        if left is None:
+            # no segment loaded: either we haven't handed it to the mixer yet,
+            # or it has been fully consumed
+            return self.total_ms if self.started else 0
+        return max(0, self.total_ms - left)
+
+    def render(self) -> Embed:
+        yt = self.song.yt
+        upcoming = music_queue.get(self.origin.guild.id, [])
+
+        if self.finished:
+            header, colour = "Finished playing", 0x2b2d31
+        elif self.paused:
+            header, colour = "⏸  Paused", 0xfaa61a
+        else:
+            header, colour = "♪  Now Playing", 0x1db954
+
+        embed = Embed(title=yt.title, url=self.song.url, colour=colour)
+        embed.set_author(name=header)
+        embed.set_thumbnail(url=yt.thumbnail_url)
+
+        total = format_duration(self.total_ms / 1000)
+        if self.finished:
+            embed.description = f"by **{yt.author}**\n`{total}`"
+        else:
+            elapsed = format_duration(self.elapsed_ms() / 1000)
+            bar = progress_bar(self.elapsed_ms(), self.total_ms)
+            embed.description = f"by **{yt.author}**\n{bar} `{elapsed} / {total}`"
+
+        if upcoming:
+            nxt = upcoming[0]
+            more = f" (+{len(upcoming) - 1} more)" if len(upcoming) > 1 else ""
+            embed.add_field(name="Up next",
+                            value=f"[{nxt.yt.title}]({nxt.url}){more}",
+                            inline=False)
+
+        if self.song.requester:
+            queued = f" · {len(upcoming)} in queue" if upcoming else ""
+            embed.set_footer(text=f"Requested by {self.song.requester.display_name}{queued}",
+                             icon_url=self.song.requester.display_avatar.url)
+        return embed
+
+    def _sync_buttons(self) -> None:
+        if self.finished:
+            self._disable_all()
+            return
+        if self.paused:
+            self.pause_resume.label, self.pause_resume.emoji = "Resume", "▶️"
+        else:
+            self.pause_resume.label, self.pause_resume.emoji = "Pause", "⏸"
+
+    def mark_finished(self) -> None:
+        self.finished = True
+        self._sync_buttons()
+
+    async def refresh(self, inter: discord.Interaction = None) -> None:
+        """Redraw the message, either as a response to a click or on our own."""
+        self._sync_buttons()
+        try:
+            if inter is not None:
+                await inter.response.edit_message(embed=self.render(), view=self)
+            elif self.message is not None:
+                await self.message.edit(embed=self.render(), view=self)
+        except discord.HTTPException:
+            pass
+
+    # --- controls --------------------------------------------------------
+
+    @discord.ui.button(label="Pause", emoji="⏸", style=discord.ButtonStyle.secondary)
+    async def pause_resume(self, inter: discord.Interaction, button: discord.ui.Button):
+        if self.paused:
+            resume_user(self.origin, self.identifier)
+        else:
+            pause_user(self.origin, self.identifier)
+        await self.refresh(inter)
+
+    @discord.ui.button(label="Skip", emoji="⏭", style=discord.ButtonStyle.secondary)
+    async def skip(self, inter: discord.Interaction, button: discord.ui.Button):
+        self.mark_finished()
+        await self.refresh(inter)
+        stop_user(self.origin, self.identifier)
+
+    @discord.ui.button(label="Stop", emoji="⏹", style=discord.ButtonStyle.danger)
+    async def stop_playback(self, inter: discord.Interaction, button: discord.ui.Button):
+        music_queue[self.origin.guild.id] = []
+        self.mark_finished()
+        await self.refresh(inter)
+        stop_user(self.origin, self.identifier)
 
 
 class MusicCommands(commands.Cog):
@@ -81,13 +225,22 @@ class MusicCommands(commands.Cog):
                 suffix = self.search_youtube(link)[0]['url_suffix'].split('&')[0]
                 link = 'https://www.youtube.com' + suffix
 
+            song = await asyncio.to_thread(build_song, link, inter.user)
             music_queue[inter.guild.id] = music_queue.get(inter.guild.id, [])
-            music_queue[inter.guild.id].append(MusicQueueSong(link))
+            music_queue[inter.guild.id].append(song)
 
             # add to queue if already playing
             if is_playing(inter, self.generate_music_identitiy(inter)):
-                print("Playing next")
-                return await inter.followup.send(f"Added {link} to the queue")
+                position = len(music_queue[inter.guild.id])
+                embed = Embed(title=song.yt.title, url=song.url, colour=0x5865f2)
+                embed.set_author(name="＋  Added to queue")
+                embed.set_thumbnail(url=song.yt.thumbnail_url)
+                embed.description = (f"by **{song.yt.author}** · "
+                                     f"`{format_duration(song.yt.length)}`")
+                embed.set_footer(text=f"#{position} in queue · "
+                                      f"requested by {inter.user.display_name}",
+                                 icon_url=inter.user.display_avatar.url)
+                return await inter.followup.send(embed=embed)
 
             await self.play_next(inter)
         except Exception as e:
@@ -96,54 +249,50 @@ class MusicCommands(commands.Cog):
 
     async def play_next(self,  inter: discord.Interaction):
         current_song = music_queue[inter.guild.id].pop(0)
+        now_playing[inter.guild.id] = current_song
+        identifier = self.generate_music_identitiy(inter)
 
-        # yt = YouTube(current_song)
         yt = current_song.yt
 
-        # extract only audio
-        video = yt.streams.get_audio_only()
-        out_file = video.download(output_path='.')
+        # extract only audio — both the download and the decode are blocking,
+        # so keep them off the event loop or the buttons stop responding
+        video = await asyncio.to_thread(lambda: yt.streams.get_audio_only())
+        out_file = await asyncio.to_thread(video.download, output_path='.')
+        try:
+            audio = await asyncio.to_thread(AudioSegment.from_file, out_file)
+        finally:
+            # pydub has the whole thing in memory now
+            if os.path.exists(out_file):
+                os.remove(out_file)
 
-        # Get the audio using YTDL
-        audio = AudioSegment.from_file(out_file)
-        # create a player using embed
-        embed = Embed(title="Now Playing", color=0x00ff00)
-        embed.add_field(name="Title", value=yt.title, inline=False)
-        embed.add_field(name="Duration", value=yt.length, inline=False)
-        embed.set_thumbnail(url=yt.thumbnail_url)
-        # add buttons to skip, pause, resume, stop
-        view = BaseView()
-        view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Pause",
-                                        emoji="⏸",
-                                        custom_id="pause"))
-        view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Stop", 
-                                        emoji="⏹",
-                                        custom_id="stop"))
-        view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Skip", 
-                                        emoji="⏭",
-                                        custom_id="skip"))
-        await inter.followup.send(embed=embed, view=view)
+        view = MusicPlayerView(self, inter, current_song, len(audio))
+        view.message = await inter.followup.send(embed=view.render(), view=view, wait=True)
 
-        await play(inter, audio, self.generate_music_identitiy(inter))
-        while is_playing(inter, self.generate_music_identitiy(inter)):
+        await play(inter, audio, identifier)
+        view.started = True
+
+        # tick the progress bar while the song plays
+        elapsed_ticks = 0
+        while is_playing(inter, identifier):
             await asyncio.sleep(1)
-        print("Playing next")
-        # delete the file
-        os.remove(out_file)
+            elapsed_ticks += 1
+            if elapsed_ticks % PROGRESS_REFRESH == 0 and not view.finished:
+                await view.refresh()
+
+        view.mark_finished()
+        await view.refresh()
+        now_playing.pop(inter.guild.id, None)
+
         if len(music_queue[inter.guild.id]) > 0:
             await self.play_next(inter)
 
     @app_commands.command(name="skip", description="Skip the current song")
     async def skip(self, inter: discord.Interaction):
         await inter.response.defer()
-        await inter.followup.send("Skipping the current song")
-        await self.skip_current(inter)
-
-    async def skip_current(self, inter: discord.Interaction):
-        await inter.response.defer()
-        if inter.guild.id not in music_queue or len(music_queue[inter.guild.id]) == 0:
-            return await inter.followup.send('No songs in queue')
+        if not is_playing(inter, self.generate_music_identitiy(inter)):
+            return await inter.followup.send('Nothing is playing')
         stop_user(inter, self.generate_music_identitiy(inter))
+        await inter.followup.send("⏭  Skipped the current song")
 
     def search_youtube(self, query):
         return YoutubeSearch(query, max_results=5).to_dict()
@@ -151,48 +300,54 @@ class MusicCommands(commands.Cog):
     @app_commands.command(name="queue", description="Show the current queue")
     async def queue(self, inter: discord.Interaction):
         await inter.response.defer()
-        if len(music_queue[inter.guild.id]) == 0:
+        current = now_playing.get(inter.guild.id)
+        upcoming = music_queue.get(inter.guild.id, [])
+        if not current and not upcoming:
             return await inter.followup.send('No songs in queue')
-        # create an embed with the current queue
-        embed = Embed(title="Queue", color=0x00ff00)
-        for i, song in enumerate(music_queue[inter.guild.id]):
-            embed.add_field(name=f"{i+1}. {song.yt.title}",
-                            value=song.yt.length, inline=False)
+
+        embed = Embed(title="Queue", colour=0x1db954)
+        if current:
+            embed.description = (f"**Now playing**\n"
+                                 f"[{current.yt.title}]({current.url}) · "
+                                 f"`{format_duration(current.yt.length)}`")
+            embed.set_thumbnail(url=current.yt.thumbnail_url)
+
+        if upcoming:
+            # embeds cap at 25 fields, and a huge queue is unreadable anyway
+            lines = [f"`{i + 1}.` [{song.yt.title}]({song.url}) · "
+                     f"`{format_duration(song.yt.length)}`"
+                     for i, song in enumerate(upcoming[:10])]
+            if len(upcoming) > 10:
+                lines.append(f"…and {len(upcoming) - 10} more")
+            embed.add_field(name=f"Up next ({len(upcoming)})",
+                            value="\n".join(lines), inline=False)
+            total = sum(song.yt.length or 0 for song in upcoming)
+            embed.set_footer(text=f"{format_duration(total)} of queued audio")
+
         await inter.followup.send(embed=embed)
 
     @app_commands.command(name="stop", description="Stop the audio")
     async def stop(self, inter: discord.Interaction):
         await inter.response.defer()
-        await self.stop_audio(inter)
-
-    async def stop_audio(self, inter: discord.Interaction):
-        await inter.response.defer()
-        stop_user(inter, self.generate_music_identitiy(inter))
-        # clear the queue
         music_queue[inter.guild.id] = []
-        await inter.followup.send('Stopped the audio')
+        stop_user(inter, self.generate_music_identitiy(inter))
+        await inter.followup.send('⏹  Stopped the audio')
 
     @app_commands.command(name="pause", description="Pause the audio")
     async def pause(self, inter: discord.Interaction):
         await inter.response.defer()
-        await self.pause_audio(inter)
-        await inter.followup.send('Paused the audio')
-
-    async def pause_audio(self, inter: discord.Interaction):
-        await inter.response.defer()
+        if not is_playing(inter, self.generate_music_identitiy(inter)):
+            return await inter.followup.send('Nothing is playing')
         pause_user(inter, self.generate_music_identitiy(inter))
+        await inter.followup.send('⏸  Paused the audio')
 
     @app_commands.command(name="resume", description="Resume the audio")
     async def resume(self, inter: discord.Interaction):
         await inter.response.defer()
-        await self.resume_audio(inter)
-        await inter.followup.send('Resumed the audio')
-
-    async def resume_audio(self, inter: discord.Interaction):
-        await inter.response.defer()
         if not is_playing(inter, self.generate_music_identitiy(inter)):
             return await inter.followup.send('No audio to resume')
         resume_user(inter, self.generate_music_identitiy(inter))
+        await inter.followup.send('▶️  Resumed the audio')
 
     @app_commands.command(name="play_file", description="Play an audio file")
     @app_commands.describe(
@@ -205,42 +360,6 @@ class MusicCommands(commands.Cog):
         audio = AudioSegment.from_file(BytesIO(res.content), format=file.filename.split('.')[-1])
         await play(inter, audio, self.generate_music_identitiy(inter))
         await inter.followup.send("Playing file " + file.url)
-    
-    @commands.Cog.listener()
-    async def on_interaction(self, inter: discord.Interaction):
-        origin_msg = inter.message  
-        if "custom_id" not in inter.data:
-            return
-        if inter.data["custom_id"] == "pause":
-            await self.pause_audio(inter)
-            view = BaseView()
-            view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Resume",
-                                            emoji="▶️",
-                                            custom_id="resume"))
-            view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Stop",
-                                            emoji="⏹",
-                                            custom_id="stop"))
-            view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Skip",
-                                            emoji="⏭",
-                                            custom_id="skip"))
-            await origin_msg.edit(view=view)
-        elif inter.data["custom_id"] == "resume":
-            await self.resume_audio(inter)
-            view = BaseView()
-            view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Pause",
-                                            emoji="⏸",
-                                            custom_id="pause"))
-            view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Stop",
-                                            emoji="⏹",
-                                            custom_id="stop"))
-            view.add_item(discord.ui.Button(style=discord.ButtonStyle.primary, label="Skip",
-                                            emoji="⏭",
-                                            custom_id="skip"))
-            await origin_msg.edit(view=view)
-        elif inter.data["custom_id"] == "stop":
-            await self.stop_audio(inter)
-        elif inter.data["custom_id"] == "skip":
-            await self.skip_current(inter)
 
 
 async def setup(bot):

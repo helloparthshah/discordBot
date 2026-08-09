@@ -296,7 +296,23 @@ class AudioPlayer(threading.Thread):
     def is_playing(self, user: str) -> bool:
         with self._lock:
             return user in self.userDict or user in self.pausedUserDict
-    
+
+    def is_paused(self, user: str) -> bool:
+        with self._lock:
+            return user in self.pausedUserDict
+
+    def remaining_ms(self, user: str) -> Optional[int]:
+        """Milliseconds of audio left for a source, or None if it isn't loaded.
+
+        The producer consumes each source segment in place as it mixes, so the
+        length of what's left is the playback position.
+        """
+        with self._lock:
+            data = self.userDict.get(user) or self.pausedUserDict.get(user)
+            if data is None:
+                return None
+            return len(data['segment'])
+
     def change_pitch(self, newPitch: float):
         if not (0.25 <= newPitch <= 4.0):
             return
@@ -344,7 +360,12 @@ async def init_voice_client(inter: discord.Interaction) -> bool:
         return False
         
     if not isinstance(inter.user, discord.Member) or not inter.user.voice or not inter.user.voice.channel:
-        await inter.response.send_message("You need to be in a voice channel to use this command.", ephemeral=True)
+        message = "You need to be in a voice channel to use this command."
+        # callers often defer first, in which case responding again would raise
+        if inter.response.is_done():
+            await inter.followup.send(message, ephemeral=True)
+        else:
+            await inter.response.send_message(message, ephemeral=True)
         return False
 
     user_channel = inter.user.voice.channel
@@ -397,6 +418,18 @@ def is_playing(inter: discord.Interaction, identifier: str) -> bool:
     if guild in audioClients and audioClients[guild] is not None:
         return audioClients[guild].is_playing(identifier)
     return False
+
+def is_paused(inter: discord.Interaction, identifier: str) -> bool:
+    guild = inter.guild
+    if guild in audioClients and audioClients[guild] is not None:
+        return audioClients[guild].is_paused(identifier)
+    return False
+
+def remaining_ms(inter: discord.Interaction, identifier: str) -> Optional[int]:
+    guild = inter.guild
+    if guild in audioClients and audioClients[guild] is not None:
+        return audioClients[guild].remaining_ms(identifier)
+    return None
 
 def stop_all(inter: discord.Interaction):
     guild = inter.guild
