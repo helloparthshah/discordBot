@@ -5,7 +5,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from utils.audio_player import disconnect_voice
+from utils import clip_buffer
+from utils.audio_player import connect_to, disconnect_voice
 
 _log = logging.getLogger(__name__)
 
@@ -71,6 +72,40 @@ class VoiceUtils(commands.Cog):
     @idle_check.before_loop
     async def before_idle_check(self):
         await self.bot.wait_until_ready()
+
+    @app_commands.command(name="join", description="Bring the bot into a voice channel")
+    @app_commands.describe(channel="Which channel to join (defaults to the one you're in)")
+    async def join(self, inter: discord.Interaction,
+                   channel: discord.VoiceChannel = None):
+        await inter.response.defer()
+
+        target = channel
+        if target is None:
+            if not isinstance(inter.user, discord.Member) or not inter.user.voice:
+                return await inter.followup.send(
+                    "Join a voice channel first, or tell me which one to join.")
+            target = inter.user.voice.channel
+
+        permissions = target.permissions_for(inter.guild.me)
+        if not permissions.connect or not permissions.speak:
+            return await inter.followup.send(
+                f"I'm not allowed to join {target.mention}.")
+
+        # a fresh join gets the full grace period before the idle check runs
+        self._empty_since.pop(inter.guild.id, None)
+        try:
+            await connect_to(target)
+        except Exception as exc:
+            _log.exception("Failed to join %s", target.id)
+            return await inter.followup.send(f"Couldn't join {target.mention}: {exc}")
+
+        # Start buffering now rather than waiting for the clip cog's next sweep,
+        # so /clip works the moment people start talking.
+        buffering = clip_buffer.start(inter.guild.voice_client)
+        note = (f"\n-# Keeping the last {clip_buffer.WINDOW_SECONDS}s of audio in "
+                f"memory for `/clip` — `/clipbuffer enabled:false` to turn that off."
+                if buffering else "")
+        await inter.followup.send(f"👋  Joined {target.mention}{note}")
 
     @app_commands.command(name="leave", description="Make the bot leave the voice channel")
     async def leave(self, inter: discord.Interaction):
