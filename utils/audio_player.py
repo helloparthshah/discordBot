@@ -16,6 +16,8 @@ from pydub import AudioSegment, effects
 import pydub
 import traceback
 
+from utils.voice_client import VoiceClientCls
+
 _log = logging.getLogger(__name__)
 
 
@@ -481,9 +483,10 @@ async def init_voice_client(inter: discord.Interaction) -> bool:
 
     user_channel = inter.user.voice.channel
 
-    # Connect or move to the correct channel
+    # Connect or move to the correct channel. A guild gets one voice client, so
+    # it's always the recording-capable subclass — see utils/voice_client.py.
     if guild.voice_client is None:
-        await user_channel.connect()
+        await user_channel.connect(cls=VoiceClientCls)
     elif guild.voice_client.channel != user_channel:
         await guild.voice_client.move_to(user_channel)
 
