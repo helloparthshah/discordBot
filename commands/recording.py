@@ -58,7 +58,9 @@ class PacketDecoder:
     def __init__(self, voice_client):
         self.voice_client = voice_client
         self._decoders: dict[int, OpusDecoder] = {}
-        self._decrypt_failures = 0
+        self.decoded = 0
+        self.dropped = 0
+        self._last_error: Exception | None = None
 
     @property
     def _session(self):
@@ -77,23 +79,41 @@ class PacketDecoder:
         session = self._session
         if session is not None and davey is not None:
             try:
-                # passthrough (no E2EE yet, or mid key-transition) is handled
-                # inside the decryptor, so this is safe either way
                 payload = session.decrypt(user_id, davey.MediaType.audio, payload)
-            except Exception:
-                self._decrypt_failures += 1
-                if self._decrypt_failures == 1:
-                    _log.warning("E2EE decrypt failed; those packets are dropped",
-                                 exc_info=True)
+            except Exception as exc:
+                # Expected at the very start: the MLS group key exchange finishes
+                # a beat after we start listening, so a speaker's cryptor may not
+                # be registered yet ("NoValidCryptorFound"). Those packets are
+                # dropped and the timeline leaves a hole. Counted, not logged
+                # per packet — one traceback per recording reads like a crash.
+                self.dropped += 1
+                self._last_error = exc
+                _log.debug("E2EE decrypt failed for %s: %s", user_id, exc)
                 return None
             if not payload:
+                self.dropped += 1
                 return None
 
         decoder = self._decoders.get(user_id)
         if decoder is None:
             # Opus decoding is stateful, so each speaker needs their own
             decoder = self._decoders[user_id] = OpusDecoder()
-        return decoder.decode(payload, fec=False)
+        pcm = decoder.decode(payload, fec=False)
+        self.decoded += 1
+        return pcm
+
+    def report(self) -> str | None:
+        """One line about dropped packets, or None if it was a clean run."""
+        if not self.dropped:
+            return None
+        total = self.decoded + self.dropped
+        _log.info("Dropped %d/%d packets that couldn't be decrypted (%s)",
+                  self.dropped, total, self._last_error)
+        # A handful at startup is routine; a large share means something's wrong.
+        if self.decoded and self.dropped / total < 0.05:
+            return None
+        return (f"{self.dropped} of {total} packets couldn't be decrypted "
+                f"and are missing from this recording.")
 
 
 class ChannelRecorder:
@@ -248,7 +268,8 @@ class Recording(commands.Cog):
         if vc.is_listening():
             return await inter.followup.send("Already recording in this server.")
 
-        recorder = ChannelRecorder(PacketDecoder(vc))
+        decoder = PacketDecoder(vc)
+        recorder = ChannelRecorder(decoder)
         self.active.add(inter.guild.id)
         try:
             # decode=False: we decrypt E2EE and decode Opus ourselves
@@ -287,6 +308,9 @@ class Recording(commands.Cog):
         note = f"Recording from {vc.channel.mention} — {seconds}s"
         if dropped:
             note += f" (only the first {MAX_ATTACHMENTS} speakers; {dropped} more omitted)"
+        lost = decoder.report()
+        if lost:
+            note += f"\n-# {lost}"
         await inter.followup.send(
             content=note,
             files=[discord.File(buf, filename=name) for name, buf in files])
@@ -325,6 +349,12 @@ class Recording(commands.Cog):
 
 async def setup(bot):
     print("Adding Recording")
+    # voice_recv logs an RTCP sender report per speaker per second, and the
+    # voice-gateway fields it doesn't model, all at INFO. Both are normal on a
+    # healthy connection and drown the log. Drop these two loggers to WARNING —
+    # remove these lines to get the chatter back while debugging voice.
+    for name in ("discord.ext.voice_recv.reader", "discord.ext.voice_recv.gateway"):
+        logging.getLogger(name).setLevel(logging.WARNING)
     await bot.add_cog(Recording(bot))
 
 
