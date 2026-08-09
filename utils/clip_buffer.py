@@ -175,6 +175,20 @@ def start(voice_client) -> bool:
     return True
 
 
+def claim_receiver(guild) -> bool:
+    """Free the guild's voice receiver for a recording or a call, and report
+    whether it's actually available now.
+
+    Releasing and checking are one operation on purpose. The buffer holds the
+    receiver whenever the bot is idle in a channel, so a caller that checked
+    `is_listening()` before releasing would reject every recording or call where
+    the bot was already sitting in the channel.
+    """
+    stop(guild)
+    voice_client = guild.voice_client
+    return voice_client is not None and not voice_client.is_listening()
+
+
 def stop(guild) -> bool:
     """Give the receiver back. Anything buffered is discarded."""
     buffer = buffers.pop(guild.id, None)

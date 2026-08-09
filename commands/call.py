@@ -301,8 +301,10 @@ class CallCommands(commands.Cog):
                 return await inter.followup.send(
                     f"I'm in **{guild.name}** with a voice client that can't receive. "
                     f"Disconnect me there and try again.")
-            # A guild has one receiver, so a call can't share with a recording.
-            if vc.is_listening():
+
+            # A guild has one receiver. This also releases the rolling clip
+            # buffer, which holds it whenever the bot is idle in a channel.
+            if not clip_buffer.claim_receiver(guild):
                 return await inter.followup.send(
                     f"I'm already receiving audio in **{guild.name}** "
                     f"(a recording or another call). Finish that first.")

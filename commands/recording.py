@@ -155,12 +155,10 @@ class Recording(commands.Cog):
             return await inter.followup.send(
                 "I joined this channel with a voice client that can't record. "
                 "Disconnect me from the voice channel and run /record again.")
-        # The clip buffer holds the receiver while the bot is idle; take it.
-        # The clip cog's maintenance loop restarts it once we're done.
-        clip_buffer.stop(inter.guild)
-
-        if vc.is_listening():
-            # one receiver per guild, so this is either a recording or a call
+        # One receiver per guild. This also releases the rolling clip buffer,
+        # which holds it while the bot is idle; the clip cog's maintenance loop
+        # starts it again once we're done.
+        if not clip_buffer.claim_receiver(inter.guild):
             return await inter.followup.send(
                 "I'm already receiving audio here (a recording or a call).")
 
