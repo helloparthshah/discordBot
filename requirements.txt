@@ -2,7 +2,7 @@ discord.py==2.7.1
 discord-py[voice]==2.7.1
 discord_py_interactions==5.16.0
 discord_py_slash_command==4.2.1
-Pillow==10.3.0
+Pillow==12.3.0
 python-dotenv==1.0.1
 # pytube==15.0.0
 pytubefix==8.13.1
