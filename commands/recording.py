@@ -126,8 +126,14 @@ class ChannelRecorder:
     sample-exact and doesn't care what order packets arrive in.
     """
 
-    def __init__(self, decoder: PacketDecoder | None = None):
+    def __init__(self, decoder: PacketDecoder | None = None,
+                 limit_ms: int | None = None):
         self.decoder = decoder
+        # Hard ceiling on the timeline. Anything landing past the requested
+        # window is dropped, so a recording can never run longer than it was
+        # asked for no matter what timestamps show up.
+        self.limit = (int(limit_ms / 1000 * SAMPLE_RATE) * TRACK_FRAME_WIDTH
+                      if limit_ms else None)
         self.started = time.perf_counter()
         self.tracks: dict[int, bytearray] = {}
         self.speakers: dict[int, str] = {}
@@ -170,6 +176,11 @@ class ChannelRecorder:
                 self._anchors[user.id] = (timestamp, max(0, lead_in) * TRACK_FRAME_WIDTH)
 
             offset = self._offset_for(user.id, timestamp, len(track))
+            if self.limit is not None:
+                if offset >= self.limit:
+                    return  # lands outside the requested window
+                pcm = pcm[:self.limit - offset]
+
             if offset > len(track):
                 track += b'\x00' * (offset - len(track))
             end = offset + len(pcm)
@@ -228,6 +239,34 @@ def encode(segment: AudioSegment, basename: str) -> tuple[io.BytesIO, str]:
     return buffer, f"{basename}.{suffix}"
 
 
+def drain_socket(voice_client, limit: int = 65536) -> int:
+    """Throw away voice packets that queued up in the OS socket buffer.
+
+    discord.py's SocketReader only reads the voice socket while something is
+    registered as a listener. Between recordings nothing is, so incoming packets
+    sit in the kernel receive buffer — and the next listen() drains the whole
+    backlog at once, each packet still carrying its original RTP timestamp. That
+    makes a fresh recording start minutes in the past.
+
+    Returns how many packets were discarded.
+    """
+    connection = getattr(voice_client, '_connection', None)
+    sock = getattr(connection, 'socket', None)
+    # Only safe on the non-blocking socket discord.py creates; if it's anything
+    # else, recv could block the command forever.
+    if sock is None or sock.gettimeout() != 0:
+        return 0
+
+    discarded = 0
+    while discarded < limit:
+        try:
+            sock.recv(65535)
+        except (BlockingIOError, InterruptedError, OSError):
+            break  # nothing buffered: caught up with live traffic
+        discarded += 1
+    return discarded
+
+
 def sanitize(name: str) -> str:
     keep = [c if c.isalnum() or c in "-_" else "-" for c in name]
     return "".join(keep).strip("-") or "speaker"
@@ -252,9 +291,18 @@ class Recording(commands.Cog):
         if not RECV_AVAILABLE:
             return await inter.followup.send(MISSING_DEPENDENCY_MESSAGE)
 
+        # Claimed before any await: two /records racing through this check would
+        # both call listen(), and the loser's error handling would stop the
+        # winner's reader.
         if inter.guild.id in self.active:
             return await inter.followup.send("Already recording in this server.")
+        self.active.add(inter.guild.id)
+        try:
+            await self._record(inter, seconds, separate)
+        finally:
+            self.active.discard(inter.guild.id)
 
+    async def _record(self, inter: discord.Interaction, seconds: int, separate: bool):
         if not await init_voice_client(inter):
             return
 
@@ -269,9 +317,15 @@ class Recording(commands.Cog):
             return await inter.followup.send("Already recording in this server.")
 
         decoder = PacketDecoder(vc)
-        recorder = ChannelRecorder(decoder)
-        self.active.add(inter.guild.id)
+        recorder = ChannelRecorder(decoder, limit_ms=seconds * 1000)
         try:
+            # Nothing has been reading the socket since the last recording, so
+            # clear the backlog before listening or it all arrives as "now".
+            stale = drain_socket(vc)
+            if stale:
+                _log.debug("Discarded %d packets buffered since the last listen", stale)
+            recorder.started = time.perf_counter()
+
             # decode=False: we decrypt E2EE and decode Opus ourselves
             vc.listen(voice_recv.BasicSink(recorder.write, decode=False))
 
@@ -283,7 +337,6 @@ class Recording(commands.Cog):
             return await inter.followup.send(f"Couldn't record: {exc}")
         finally:
             vc.stop_listening()
-            self.active.discard(inter.guild.id)
 
         # let the last packets land before reading the buffers
         await asyncio.sleep(0.5)
