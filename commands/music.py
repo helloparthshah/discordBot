@@ -43,7 +43,11 @@ class BaseView(discord.ui.View):
 class MusicQueueSong:
     def __init__(self, url):
         self.url = url
-        self.yt = YouTube(url, client='WEB')
+        # The WEB client needs a poToken (botGuard/node) to get playable stream
+        # urls; without it YouTube returns streams with no url and pytubefix
+        # blows up with UnboundLocalError. ANDROID_VR (pytubefix's default)
+        # doesn't require one.
+        self.yt = YouTube(url)
 
 
 class MusicCommands(commands.Cog):
@@ -55,11 +59,13 @@ class MusicCommands(commands.Cog):
         if not string_option_input or len(string_option_input) < 3:
             return []
         results = self.search_youtube(string_option_input)
+        print(results)
         choices = []
         for result in results:
+            clean_url_suffix = result['url_suffix'].split('&')[0]
             choices.append(
                 app_commands.Choice[str](name=result['title'],
-                                         value='https://www.youtube.com'+result['url_suffix']))
+                                         value='https://www.youtube.com'+clean_url_suffix))
         return choices
     
     @app_commands.command(name="play", description="play a song!")
@@ -72,7 +78,8 @@ class MusicCommands(commands.Cog):
         try:
             # check if link is a youtube link
             if "youtube.com" not in link:
-                link = self.search_youtube(link)[0]['url_suffix']
+                suffix = self.search_youtube(link)[0]['url_suffix'].split('&')[0]
+                link = 'https://www.youtube.com' + suffix
 
             music_queue[inter.guild.id] = music_queue.get(inter.guild.id, [])
             music_queue[inter.guild.id].append(MusicQueueSong(link))
@@ -85,7 +92,7 @@ class MusicCommands(commands.Cog):
             await self.play_next(inter)
         except Exception as e:
             print(e)
-            await inter.followup.send(e)
+            await inter.followup.send(f"Couldn't play that: {e}")
 
     async def play_next(self,  inter: discord.Interaction):
         current_song = music_queue[inter.guild.id].pop(0)
