@@ -17,6 +17,7 @@ from discord.ext import commands
 
 from utils.audio_player import (close_stream, connect_to, disconnect_voice,
                                 feed_stream, open_stream)
+from utils import clip_buffer
 from utils.voice_client import MISSING_DEPENDENCY_MESSAGE, RECV_AVAILABLE, voice_recv
 from utils.voice_receive import PacketDecoder, drain_socket
 
@@ -44,6 +45,8 @@ class BridgeSide:
         self._lock = threading.Lock()
 
     def start(self) -> None:
+        # The clip buffer holds the receiver while the bot is idle; take it.
+        clip_buffer.stop(self.guild)
         # Nothing has read this socket since the last listen, so the kernel may
         # be holding a backlog that would arrive as a burst of stale audio.
         drain_socket(self.voice_client)

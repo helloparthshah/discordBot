@@ -490,6 +490,29 @@ class AudioPlayer(threading.Thread):
                 frames_left = max(0, data['frames'] - data['pos'])
             return int(frames_left * 1000 / self.SAMPLING_RATE)
 
+    def seek(self, user: str, position_ms: float) -> Optional[int]:
+        """Jump to a position in a finite source, returning where we landed.
+
+        Cheap because sources are read through a frame cursor — seeking is just
+        moving it. None means no such source, or a live one, which has no
+        timeline to seek within.
+        """
+        with self._lock:
+            data = self.userDict.get(user) or self.pausedUserDict.get(user)
+            if data is None or data.get('live'):
+                return None
+
+            target = int(position_ms / 1000 * self.SAMPLING_RATE)
+            data['pos'] = max(0, min(target, data['frames']))
+            landed = int(data['pos'] * 1000 / self.SAMPLING_RATE)
+            solo = len(self.userDict) <= 1
+
+        if solo:
+            # Drop pre-mixed frames so the jump is heard now rather than after
+            # the queue drains. Only safe when nothing else is playing.
+            self._discard_prepared_audio()
+        return landed
+
     def change_pitch(self, newPitch: float):
         if not (0.25 <= newPitch <= 4.0):
             return
@@ -640,6 +663,10 @@ async def disconnect_voice(guild: discord.Guild) -> bool:
         pass  # only exists on the recv client, and only while listening
     await vc.disconnect(force=True)
     return True
+
+def seek(inter: discord.Interaction, identifier: str, position_ms: float) -> Optional[int]:
+    player = audioClients.get(inter.guild)
+    return player.seek(identifier, position_ms) if player is not None else None
 
 def open_stream(guild: discord.Guild, identifier: str) -> bool:
     """Start a live source in `guild`'s mixer. Guild-based rather than

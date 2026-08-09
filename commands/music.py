@@ -9,15 +9,41 @@ import discord
 from discord import Embed, app_commands
 from discord.ext import commands
 from utils.audio_player import (play, is_playing, is_paused, remaining_ms,
+                                seek as seek_source,
                                 stop_user, pause_user, resume_user)
 from pydub import AudioSegment
 from discord.ui.select import BaseSelect
 
 music_queue = {}
 now_playing = {}
+# The live Now Playing view per guild, so /seek can redraw it.
+active_players = {}
 
 # How often the Now Playing embed redraws its progress bar, in seconds.
 PROGRESS_REFRESH = 10
+# How far the ⏪ / ⏩ buttons jump.
+SEEK_STEP_MS = 15_000
+
+
+def parse_position(value: str) -> tuple[typing.Optional[float], bool]:
+    """Read '1:47', '90', '+15' or '-30' as (seconds, is_relative)."""
+    text = (value or "").strip()
+    relative = text.startswith(("+", "-"))
+    sign = -1 if text.startswith("-") else 1
+    text = text.lstrip("+-").strip()
+    if not text:
+        return None, False
+
+    parts = text.split(":")
+    if len(parts) > 3:
+        return None, False
+    try:
+        seconds = 0.0
+        for part in parts:
+            seconds = seconds * 60 + float(part)
+    except ValueError:
+        return None, False
+    return sign * seconds, relative
 
 
 def build_song(url, requester) -> "MusicQueueSong":
@@ -172,12 +198,25 @@ class MusicPlayerView(BaseView):
 
     # --- controls --------------------------------------------------------
 
+    def seek_by(self, delta_ms: int) -> None:
+        seek_source(self.origin, self.identifier, self.elapsed_ms() + delta_ms)
+
+    @discord.ui.button(emoji="⏪", style=discord.ButtonStyle.secondary)
+    async def rewind(self, inter: discord.Interaction, button: discord.ui.Button):
+        self.seek_by(-SEEK_STEP_MS)
+        await self.refresh(inter)
+
     @discord.ui.button(label="Pause", emoji="⏸", style=discord.ButtonStyle.secondary)
     async def pause_resume(self, inter: discord.Interaction, button: discord.ui.Button):
         if self.paused:
             resume_user(self.origin, self.identifier)
         else:
             pause_user(self.origin, self.identifier)
+        await self.refresh(inter)
+
+    @discord.ui.button(emoji="⏩", style=discord.ButtonStyle.secondary)
+    async def forward(self, inter: discord.Interaction, button: discord.ui.Button):
+        self.seek_by(SEEK_STEP_MS)
         await self.refresh(inter)
 
     @discord.ui.button(label="Skip", emoji="⏭", style=discord.ButtonStyle.secondary)
@@ -266,6 +305,7 @@ class MusicCommands(commands.Cog):
                 os.remove(out_file)
 
         view = MusicPlayerView(self, inter, current_song, len(audio))
+        active_players[inter.guild.id] = view
         view.message = await inter.followup.send(embed=view.render(), view=view, wait=True)
 
         await play(inter, audio, identifier)
@@ -282,6 +322,8 @@ class MusicCommands(commands.Cog):
         view.mark_finished()
         await view.refresh()
         now_playing.pop(inter.guild.id, None)
+        if active_players.get(inter.guild.id) is view:
+            del active_players[inter.guild.id]
 
         if len(music_queue[inter.guild.id]) > 0:
             await self.play_next(inter)
@@ -293,6 +335,33 @@ class MusicCommands(commands.Cog):
             return await inter.followup.send('Nothing is playing')
         stop_user(inter, self.generate_music_identitiy(inter))
         await inter.followup.send("⏭  Skipped the current song")
+
+    @app_commands.command(name="seek", description="Jump to a position in the current song")
+    @app_commands.describe(position="Where to jump to: 1:47, 90, +15, -30")
+    async def seek(self, inter: discord.Interaction, position: str):
+        await inter.response.defer()
+        identifier = self.generate_music_identitiy(inter)
+        if not is_playing(inter, identifier):
+            return await inter.followup.send("Nothing is playing")
+
+        seconds, relative = parse_position(position)
+        if seconds is None:
+            return await inter.followup.send(
+                "I couldn't read that position. Try `1:47`, `90`, `+15` or `-30`.")
+
+        view = active_players.get(inter.guild.id)
+        target_ms = seconds * 1000
+        if relative:
+            elapsed = view.elapsed_ms() if view else (remaining_ms(inter, identifier) or 0)
+            target_ms += elapsed
+
+        landed = seek_source(inter, identifier, target_ms)
+        if landed is None:
+            return await inter.followup.send("There's nothing seekable playing")
+
+        if view is not None:
+            await view.refresh()
+        await inter.followup.send(f"⏩  Jumped to `{format_duration(landed / 1000)}`")
 
     def search_youtube(self, query):
         return YoutubeSearch(query, max_results=5).to_dict()

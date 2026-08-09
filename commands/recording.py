@@ -1,5 +1,4 @@
 import asyncio
-import audioop
 import io
 import logging
 import threading
@@ -9,30 +8,19 @@ import discord
 from discord import Embed, app_commands
 from discord.ext import commands
 from pydub import AudioSegment, effects
-from pydub.utils import which
 
+from utils import clip_buffer
 from utils.audio_player import init_voice_client
 from utils.voice_client import MISSING_DEPENDENCY_MESSAGE, RECV_AVAILABLE, voice_recv
-from utils.voice_receive import PacketDecoder, drain_socket
+from utils.voice_receive import (MONO_FRAME_WIDTH as TRACK_FRAME_WIDTH,
+                                 SAMPLE_RATE, SAMPLE_WIDTH, PacketDecoder,
+                                 drain_socket, encode, mix_tracks,
+                                 mono_segment as _segment, sanitize, to_mono)
 
 _log = logging.getLogger(__name__)
 
-# Discord decodes voice to 48kHz 16-bit stereo, but each user's Opus stream is
-# mono, so the two channels are identical. Tracks are stored mono: same audio,
-# half the memory, and a smaller upload.
-SAMPLE_RATE = 48000
-SAMPLE_WIDTH = 2
-TRACK_FRAME_WIDTH = SAMPLE_WIDTH
-
 MAX_SECONDS = 300
 MAX_ATTACHMENTS = 10
-
-
-def _segment(raw: bytes) -> AudioSegment:
-    return AudioSegment(bytes(raw), metadata={'channels': 1,
-                                              'sample_width': SAMPLE_WIDTH,
-                                              'frame_rate': SAMPLE_RATE,
-                                              'frame_width': TRACK_FRAME_WIDTH})
 
 
 class ChannelRecorder:
@@ -77,13 +65,9 @@ class ChannelRecorder:
         if not raw:
             return
 
-        # Each stream is dual-mono; fold it down on the way in. audioop needs
-        # whole stereo frames, so drop any ragged tail.
-        stereo_width = SAMPLE_WIDTH * 2
-        pcm = raw[:len(raw) // stereo_width * stereo_width]
+        pcm = to_mono(raw)
         if not pcm:
             return
-        pcm = audioop.tomono(pcm, SAMPLE_WIDTH, 0.5, 0.5)
         timestamp = getattr(data.packet, 'timestamp', None)
 
         with self._lock:
@@ -127,40 +111,7 @@ class ChannelRecorder:
         return {name: _segment(data) for name, data in raw.items()}
 
     def mix(self) -> AudioSegment | None:
-        tracks = self.snapshot()
-        if not tracks:
-            return None
-
-        segments = list(tracks.values())
-        if len(segments) == 1:
-            return effects.normalize(segments[0], headroom=1.0)
-
-        # overlay() truncates to the base, so the bed has to be the full length.
-        # Summing saturates, so give each speaker room before mixing and take
-        # the level back with a normalize afterwards.
-        longest = max(len(seg) for seg in segments)
-        mixed = AudioSegment.silent(duration=longest, frame_rate=SAMPLE_RATE)
-        for seg in segments:
-            mixed = mixed.overlay(seg - 3.0)
-        return effects.normalize(mixed, headroom=1.0)
-
-
-def encode(segment: AudioSegment, basename: str) -> tuple[io.BytesIO, str]:
-    """MP3 when ffmpeg is around, otherwise WAV — pydub writes wav itself."""
-    buffer = io.BytesIO()
-    if which("ffmpeg") or which("avconv"):
-        segment.export(buffer, format="mp3", bitrate="128k")
-        suffix = "mp3"
-    else:
-        segment.export(buffer, format="wav")
-        suffix = "wav"
-    buffer.seek(0)
-    return buffer, f"{basename}.{suffix}"
-
-
-def sanitize(name: str) -> str:
-    keep = [c if c.isalnum() or c in "-_" else "-" for c in name]
-    return "".join(keep).strip("-") or "speaker"
+        return mix_tracks(self.snapshot())
 
 
 class Recording(commands.Cog):
@@ -204,6 +155,10 @@ class Recording(commands.Cog):
             return await inter.followup.send(
                 "I joined this channel with a voice client that can't record. "
                 "Disconnect me from the voice channel and run /record again.")
+        # The clip buffer holds the receiver while the bot is idle; take it.
+        # The clip cog's maintenance loop restarts it once we're done.
+        clip_buffer.stop(inter.guild)
+
         if vc.is_listening():
             # one receiver per guild, so this is either a recording or a call
             return await inter.followup.send(

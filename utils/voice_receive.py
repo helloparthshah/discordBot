@@ -3,7 +3,12 @@
 Shared by /record and /call: both need Discord's end-to-end encryption undone
 before the Opus decoder will accept a packet.
 """
+import audioop
+import io
 import logging
+
+from pydub import AudioSegment, effects
+from pydub.utils import which
 
 from discord.opus import OPUS_SILENCE, Decoder as OpusDecoder
 
@@ -117,3 +122,63 @@ def drain_socket(voice_client, limit: int = 65536) -> int:
             break  # nothing buffered: caught up with live traffic
         discarded += 1
     return discarded
+
+
+# --- shared audio helpers ----------------------------------------------------
+# Discord decodes voice to 48kHz 16-bit stereo, but each user's Opus stream is
+# mono, so the two channels are identical. Captures store mono: same audio,
+# half the memory, and a smaller upload.
+SAMPLE_RATE = 48000
+SAMPLE_WIDTH = 2
+MONO_FRAME_WIDTH = SAMPLE_WIDTH
+
+
+def to_mono(raw: bytes) -> bytes:
+    """Fold a dual-mono stereo frame down. audioop needs whole stereo frames,
+    so any ragged tail is dropped."""
+    stereo_width = SAMPLE_WIDTH * 2
+    pcm = raw[:len(raw) // stereo_width * stereo_width]
+    return audioop.tomono(pcm, SAMPLE_WIDTH, 0.5, 0.5) if pcm else b''
+
+
+def mono_segment(raw: bytes) -> AudioSegment:
+    return AudioSegment(bytes(raw), metadata={'channels': 1,
+                                              'sample_width': SAMPLE_WIDTH,
+                                              'frame_rate': SAMPLE_RATE,
+                                              'frame_width': MONO_FRAME_WIDTH})
+
+
+def mix_tracks(tracks: dict) -> AudioSegment | None:
+    """Overlay per-speaker segments that already share a zero point."""
+    segments = list(tracks.values())
+    if not segments:
+        return None
+    if len(segments) == 1:
+        return effects.normalize(segments[0], headroom=1.0)
+
+    # overlay() truncates to the base, so the bed has to be the full length.
+    # Summing saturates, so give each speaker room before mixing and take the
+    # level back with a normalize afterwards.
+    longest = max(len(seg) for seg in segments)
+    mixed = AudioSegment.silent(duration=longest, frame_rate=SAMPLE_RATE)
+    for seg in segments:
+        mixed = mixed.overlay(seg - 3.0)
+    return effects.normalize(mixed, headroom=1.0)
+
+
+def encode(segment: AudioSegment, basename: str) -> tuple[io.BytesIO, str]:
+    """MP3 when ffmpeg is around, otherwise WAV — pydub writes wav itself."""
+    buffer = io.BytesIO()
+    if which("ffmpeg") or which("avconv"):
+        segment.export(buffer, format="mp3", bitrate="128k")
+        suffix = "mp3"
+    else:
+        segment.export(buffer, format="wav")
+        suffix = "wav"
+    buffer.seek(0)
+    return buffer, f"{basename}.{suffix}"
+
+
+def sanitize(name: str) -> str:
+    keep = [c if c.isalnum() or c in "-_" else "-" for c in name]
+    return "".join(keep).strip("-") or "speaker"

@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 import os
+import re
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -69,13 +70,36 @@ async def on_ready() -> None:
     await bot.change_presence(activity=discord.Game(name=f"/help"))
 
 
+def group_name(command) -> str:
+    """The cog a command came from, tidied up for display."""
+    cog = getattr(command, "binding", None)
+    if cog is None:
+        return "General"
+    name = type(cog).__name__.removesuffix("Commands") or "General"
+    # CamelCase -> spaced words
+    return re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name)
+
+
 @bot.tree.command(name="help", description="View all of the commands")
 async def help(interaction: discord.Interaction):
-    # dynamically create the embed
-    embed = discord.Embed(title="Help", color=0x00ff00)
-    for command in bot.tree.get_commands():
-        embed.add_field(name="/"+str(command.name),
-                        value=str(command.description), inline=False)
+    groups: dict[str, list[str]] = {}
+    for command in bot.tree.walk_commands():
+        if isinstance(command, discord.app_commands.Group):
+            continue
+        line = f"`/{command.qualified_name}` — {command.description or 'No description'}"
+        groups.setdefault(group_name(command), []).append(line)
+
+    # Everything goes in the description rather than one field per command:
+    # embeds allow only 25 fields, and this bot passed that.
+    sections = []
+    for name in sorted(groups):
+        sections.append(f"**{name}**\n" + "\n".join(sorted(groups[name])))
+    description = "\n\n".join(sections)
+
+    if len(description) > 4096:
+        description = description[:4050].rsplit("\n", 1)[0] + "\n…and more"
+
+    embed = discord.Embed(title="Help", color=0x00ff00, description=description)
     await interaction.response.send_message(embed=embed)
     
 
@@ -129,5 +153,6 @@ async def setup_hook():
     await bot.load_extension("commands.voiceUtils")
     await bot.load_extension("commands.recording")
     await bot.load_extension("commands.call")
+    await bot.load_extension("commands.clip")
 
 bot.run(TOKEN)
