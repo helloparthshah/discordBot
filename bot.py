@@ -10,6 +10,8 @@ load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
 USER_ID_THUMBS_DOWN = 375859366395641858
 USER_ID_CHUS = 347605620012351488
+# CHUS reactions are an in-joke for one server only
+CHUS_GUILD_ID = 1030766503949254656
 CHUS_REACTION_RESPONSES = [
     "CHUS",
     "MUTH",
@@ -92,7 +94,7 @@ async def on_message(message: discord.Message) -> None:
 
     if message.author.id == USER_ID_THUMBS_DOWN:
         await message.add_reaction("👎")
-    elif message.author.id == USER_ID_CHUS:
+    elif message.author.id == USER_ID_CHUS and message.guild and message.guild.id == CHUS_GUILD_ID:
         chosen_response = random.choice(CHUS_REACTION_RESPONSES)
         for emoji in to_reaction_emojis(chosen_response):
             await message.add_reaction(emoji)
