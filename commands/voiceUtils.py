@@ -1,16 +1,81 @@
+import logging
+import time
+
 import discord
 from discord import app_commands
-from discord.ext import commands
+from discord.ext import commands, tasks
 
 from utils.audio_player import disconnect_voice
+
+_log = logging.getLogger(__name__)
+
+# How long the bot sits in an empty channel before leaving, and how often it
+# checks. The actual delay lands somewhere in [IDLE_TIMEOUT, +IDLE_CHECK].
+IDLE_TIMEOUT = 120
+IDLE_CHECK = 30
+
 
 class VoiceUtils(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._empty_since: dict[int, float] = {}
+        self.idle_check.start()
+
+    def cog_unload(self):
+        self.idle_check.cancel()
+
+    def occupants(self, channel) -> int:
+        """How many people other than the bot are in `channel`.
+
+        Counted from voice_states rather than channel.members: the bot runs on
+        Intents.default(), which has no members intent, so the member cache can
+        be empty and members would under-report — and leaving a channel that
+        still has people in it is much worse than lingering in an empty one.
+        Anyone we can't resolve is assumed to be a person.
+        """
+        count = 0
+        for user_id in channel.voice_states:
+            if user_id == self.bot.user.id:
+                continue
+            member = channel.guild.get_member(user_id)
+            if member is not None and member.bot:
+                continue
+            count += 1
+        return count
+
+    @tasks.loop(seconds=IDLE_CHECK)
+    async def idle_check(self):
+        """Leave voice channels nobody is listening in."""
+        for voice_client in list(self.bot.voice_clients):
+            guild, channel = voice_client.guild, voice_client.channel
+            if channel is None:
+                continue
+
+            if self.occupants(channel):
+                self._empty_since.pop(guild.id, None)
+                continue
+
+            since = self._empty_since.setdefault(guild.id, time.monotonic())
+            if time.monotonic() - since < IDLE_TIMEOUT:
+                continue
+
+            self._empty_since.pop(guild.id, None)
+            try:
+                # If a call is up, the bot leaving fires on_voice_state_update
+                # and the call cog tears the other side down too.
+                await disconnect_voice(guild)
+                _log.info("Left empty voice channel in %s", guild.id)
+            except Exception:
+                _log.exception("Failed to leave an empty channel in %s", guild.id)
+
+    @idle_check.before_loop
+    async def before_idle_check(self):
+        await self.bot.wait_until_ready()
 
     @app_commands.command(name="leave", description="Make the bot leave the voice channel")
     async def leave(self, inter: discord.Interaction):
         await inter.response.defer()
+        self._empty_since.pop(inter.guild.id, None)
         if await disconnect_voice(inter.guild):
             await inter.followup.send("👋  Left the voice channel")
         else:
