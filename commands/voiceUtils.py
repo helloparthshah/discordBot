@@ -2,9 +2,20 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
+from utils.audio_player import disconnect_voice
+
 class VoiceUtils(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    @app_commands.command(name="leave", description="Make the bot leave the voice channel")
+    async def leave(self, inter: discord.Interaction):
+        await inter.response.defer()
+        if await disconnect_voice(inter.guild):
+            await inter.followup.send("👋  Left the voice channel")
+        else:
+            await inter.followup.send("I'm not in a voice channel here")
+
     # @slash_command(name="record", description="record some audio")
     # @slash_option(
     #     name="time",

@@ -126,5 +126,6 @@ async def setup_hook():
     await bot.load_extension("commands.imageUtils")
     await bot.load_extension("commands.voiceUtils")
     await bot.load_extension("commands.recording")
+    await bot.load_extension("commands.call")
 
 bot.run(TOKEN)

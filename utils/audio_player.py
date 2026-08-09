@@ -43,6 +43,10 @@ class AudioPlayer(threading.Thread):
     # so it stays short: 20 frames = 400ms.
     QUEUE_FRAMES: int = 20
 
+    # Most a live source will buffer before it starts dropping the oldest audio.
+    # This is the ceiling on added delay for a call: 1 second.
+    STREAM_MAX_BYTES: int = SAMPLING_RATE * CHANNELS * SAMPLE_WIDTH
+
     # Sources are normalized to this much headroom rather than to full scale.
     # Overlaying is the whole point of this player, and two sources normalized
     # to 0 dBFS sum well past full scale and clip hard in audioop.add.
@@ -192,6 +196,9 @@ class AudioPlayer(threading.Thread):
         `segment = segment[read:]` copies the entire remainder of the track on
         every batch — for a 5 minute song that's ~57MB memcpy'd 10x a second.
         """
+        if data.get('live'):
+            return self._read_live(data, frames)
+
         segment: AudioSegment = data['segment']
         start = data['pos']
         end = min(start + frames, data['frames'])
@@ -202,6 +209,68 @@ class AudioPlayer(threading.Thread):
         chunk = segment._spawn(segment.raw_data[start * width:end * width])
         data['pos'] = end
         return chunk
+
+    def _read_live(self, data: dict, frames: int) -> Optional[AudioSegment]:
+        """Take whatever a live source has buffered, up to `frames`.
+
+        Unlike a finite source this one is never 'done' — running dry just means
+        the far end isn't talking right now, so it yields nothing and stays put.
+        """
+        buffer: bytearray = data['buffer']
+        if not buffer:
+            return None
+
+        wanted = frames * self.FRAME_WIDTH
+        chunk = bytes(buffer[:wanted])
+        del buffer[:len(chunk)]
+        return AudioSegment(chunk, metadata={'channels': self.CHANNELS,
+                                             'sample_width': self.SAMPLE_WIDTH,
+                                             'frame_rate': self.SAMPLING_RATE,
+                                             'frame_width': self.FRAME_WIDTH})
+
+    # --- live sources ----------------------------------------------------
+
+    def open_stream(self, user: str) -> None:
+        """Register a source that audio can be fed to over time.
+
+        Finite sources are dropped the moment the cursor reaches the end. A
+        live one stays registered through the gaps, which is what a call needs.
+        """
+        with self._lock:
+            existing = self.userDict.get(user)
+            if existing is not None and existing.get('live'):
+                return
+            self.pausedUserDict.pop(user, None)
+            self.userDict[user] = {'live': True, 'buffer': bytearray()}
+
+    def feed_stream(self, user: str, pcm: bytes) -> bool:
+        """Append PCM (48kHz stereo 16-bit) to a live source.
+
+        False means there's no such live source — the caller may need to
+        re-open it, e.g. if this player replaced one that had it registered.
+        """
+        with self._lock:
+            source = self.userDict.get(user)
+            if source is None or not source.get('live'):
+                return False
+
+            buffer: bytearray = source['buffer']
+            buffer += pcm
+            # If the far end runs even slightly fast, an unbounded buffer turns
+            # into unbounded delay. Drop the oldest audio instead of drifting.
+            overflow = len(buffer) - self.STREAM_MAX_BYTES
+            if overflow > 0:
+                del buffer[:overflow]
+                source['dropped'] = source.get('dropped', 0) + overflow
+
+            self._sources_exist.set()
+            return True
+
+    def close_stream(self, user: str) -> None:
+        with self._lock:
+            source = self.userDict.get(user)
+            if source is not None and source.get('live'):
+                del self.userDict[user]
 
     def _generate_processed_batch(self, duration_ms: int) -> Optional[AudioSegment]:
         """
@@ -239,7 +308,9 @@ class AudioPlayer(threading.Thread):
                 chunk = self._read_frames(data, frames_to_read)
                 if chunk is not None:
                     chunks.append(chunk)
-                if data['pos'] >= data['frames']:
+                # live sources stay registered through silence; finite ones go
+                # as soon as they're spent
+                if not data.get('live') and data['pos'] >= data['frames']:
                     del self.userDict[user]
 
         if not chunks:
@@ -413,7 +484,10 @@ class AudioPlayer(threading.Thread):
             data = self.userDict.get(user) or self.pausedUserDict.get(user)
             if data is None:
                 return None
-            frames_left = max(0, data['frames'] - data['pos'])
+            if data.get('live'):
+                frames_left = len(data['buffer']) // self.FRAME_WIDTH
+            else:
+                frames_left = max(0, data['frames'] - data['pos'])
             return int(frames_left * 1000 / self.SAMPLING_RATE)
 
     def change_pitch(self, newPitch: float):
@@ -458,14 +532,28 @@ class AudioPlayer(threading.Thread):
 
 audioClients: typing.Dict[discord.Guild, AudioPlayer] = {}
 audioVolume: typing.Dict[discord.Guild, int] = {}
-encoder = discord.opus.Encoder(
-    application='audio',
-    bitrate=128,
-    fec=True,
-    expected_packet_loss=0.15,
-    bandwidth='full',
-    signal_type='auto',
-)
+
+# Percent, converted to gain as 20*log10(v/100), so 100 is unity.
+DEFAULT_VOLUME = 100
+
+
+def make_encoder() -> OpusEncoder:
+    """A fresh encoder per player — never share one.
+
+    An Opus encoder carries mutable per-stream state and is not thread-safe.
+    Each AudioPlayer encodes on its own consumer thread, so a shared encoder is
+    fine right up until the bot is in two guilds at once (a call, or music in
+    two servers). Then the state corrupts and libopus aborts the *process*:
+    "silk/resampler.c: assertion failed: inLen >= S->Fs_in_kHz".
+    """
+    return discord.opus.Encoder(
+        application='audio',
+        bitrate=128,
+        fec=True,
+        expected_packet_loss=0.15,
+        bandwidth='full',
+        signal_type='auto',
+    )
 
 async def init_voice_client(inter: discord.Interaction) -> bool:
     guild = inter.guild
@@ -481,17 +569,27 @@ async def init_voice_client(inter: discord.Interaction) -> bool:
             await inter.response.send_message(message, ephemeral=True)
         return False
 
-    user_channel = inter.user.voice.channel
+    return await connect_to(inter.user.voice.channel)
+
+
+async def connect_to(channel) -> bool:
+    """Join (or move to) `channel` and make sure a live AudioPlayer is attached.
+
+    Split out of init_voice_client so callers that aren't acting on behalf of
+    the interaction's author — a call being accepted on the far side, say — can
+    connect somewhere the invoking user isn't.
+    """
+    guild = channel.guild
 
     # Connect or move to the correct channel. A guild gets one voice client, so
     # it's always the recording-capable subclass — see utils/voice_client.py.
     if guild.voice_client is None:
-        await user_channel.connect(cls=VoiceClientCls)
-    elif guild.voice_client.channel != user_channel:
-        await guild.voice_client.move_to(user_channel)
+        await channel.connect(cls=VoiceClientCls)
+    elif guild.voice_client.channel != channel:
+        await guild.voice_client.move_to(channel)
 
     if guild not in audioVolume:
-        audioVolume[guild] = 20
+        audioVolume[guild] = DEFAULT_VOLUME
 
     # Grab the current, active VoiceClient object
     vc = typing.cast(VoiceClient, guild.voice_client)
@@ -509,7 +607,7 @@ async def init_voice_client(inter: discord.Interaction) -> bool:
             audioClients[guild].stop() # Tell the zombie thread to shut down
 
         _log.info(f"Initializing new AudioPlayer for guild {guild.id}")
-        audioClients[guild] = AudioPlayer(vc, encoder)
+        audioClients[guild] = AudioPlayer(vc, make_encoder())
         audioClients[guild].start()
         audioClients[guild].set_volume(audioVolume[guild])
 
@@ -521,6 +619,45 @@ async def play(inter: discord.Interaction, sound: AudioSegment, identifier: str)
         # normalizing a full song is a multi-hundred-ms walk over tens of MB;
         # doing it inline stalls every other command on the bot
         await asyncio.to_thread(audioClients[guild].add_to_source_queue, sound, identifier)
+
+async def disconnect_voice(guild: discord.Guild) -> bool:
+    """Stop the player and leave the voice channel. False if we weren't in one.
+
+    The player goes first so its consumer thread stops writing to a client
+    that's about to close.
+    """
+    player = audioClients.pop(guild, None)
+    if player is not None:
+        player.stop()
+    audioVolume.pop(guild, None)
+
+    vc = guild.voice_client
+    if vc is None:
+        return False
+    try:
+        vc.stop_listening()
+    except Exception:
+        pass  # only exists on the recv client, and only while listening
+    await vc.disconnect(force=True)
+    return True
+
+def open_stream(guild: discord.Guild, identifier: str) -> bool:
+    """Start a live source in `guild`'s mixer. Guild-based rather than
+    interaction-based: a bridge feeds a guild the invoking user isn't in."""
+    player = audioClients.get(guild)
+    if player is None:
+        return False
+    player.open_stream(identifier)
+    return True
+
+def feed_stream(guild: discord.Guild, identifier: str, pcm: bytes) -> bool:
+    player = audioClients.get(guild)
+    return player.feed_stream(identifier, pcm) if player is not None else False
+
+def close_stream(guild: discord.Guild, identifier: str) -> None:
+    player = audioClients.get(guild)
+    if player is not None:
+        player.close_stream(identifier)
 
 def set_volume(inter: discord.Interaction, volume: int):
     guild = inter.guild
