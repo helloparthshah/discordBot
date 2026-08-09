@@ -32,6 +32,19 @@ class AudioPlayer(threading.Thread):
     CHANNELS: int = 2
     SAMPLE_WIDTH: int = 2 # 16-bit audio
     SAMPLING_RATE: int = OpusEncoder.SAMPLING_RATE
+    FRAME_WIDTH: int = CHANNELS * SAMPLE_WIDTH
+    FRAME_MS: int = int(OpusEncoder.FRAME_LENGTH)
+    BATCH_MS: int = 100
+
+    # How many pre-mixed frames we keep ahead of the consumer. This is the
+    # jitter buffer, but it is also how long a stop takes to become audible,
+    # so it stays short: 20 frames = 400ms.
+    QUEUE_FRAMES: int = 20
+
+    # Sources are normalized to this much headroom rather than to full scale.
+    # Overlaying is the whole point of this player, and two sources normalized
+    # to 0 dBFS sum well past full scale and clip hard in audioop.add.
+    MIX_HEADROOM_DB: float = 6.0
 
     def __init__(
         self,
@@ -51,7 +64,8 @@ class AudioPlayer(threading.Thread):
         self._lock: threading.RLock = threading.RLock()
 
         # Queue for final, perfectly-sized raw audio frames
-        self.processed_queue = queue.Queue(maxsize=100) 
+        self.processed_queue = queue.Queue(maxsize=self.QUEUE_FRAMES)
+        self._silence_cache: Optional[AudioSegment] = None
 
         self._current_error: Optional[Exception] = None
         
@@ -91,54 +105,102 @@ class AudioPlayer(threading.Thread):
                 break
 
             # 1. Refill the continuous stream buffer if it's running low.
-            if len(continuous_stream_buffer) < 100: # Maintain a buffer of at least 20ms
-                batch_to_add = self._generate_processed_batch(duration_ms=100)
+            if len(continuous_stream_buffer) < self.BATCH_MS:
+                batch_to_add = self._generate_processed_batch(duration_ms=self.BATCH_MS)
                 if batch_to_add:
                     continuous_stream_buffer += batch_to_add
-                elif len(continuous_stream_buffer) == 0:
-                    # No more audio to process, wait for new sources
-                    with self._lock:
-                        if not self.userDict:
-                           self._sources_exist.clear()
-                    continue
                 else:
-                    # output the remaining buffer if it's not empty
-                    if len(continuous_stream_buffer) > 0:
-                        try:
-                            self.output_processed_frame(continuous_stream_buffer)
-                            continuous_stream_buffer = AudioSegment.empty()
-                        except queue.Full:
-                            print("Processed queue is full, skipping frame.")
-                            pass
-                        
+                    # Every source is spent. Flush the partial frame that's left
+                    # over rather than dropping it, then idle until woken.
+                    continuous_stream_buffer = self._drain_buffer(
+                        continuous_stream_buffer, flush=True)
+                    with self._lock:
+                        idle = not self.userDict
+                        if idle:
+                            self._sources_exist.clear()
+                    if not idle:
+                        # Sources are loaded but produced nothing, so mixing is
+                        # failing. Back off instead of retrying flat out.
+                        time.sleep(self.DELAY)
+                    continue
 
             # 2. Slice 20ms frames from the continuous stream into the queue.
-            while len(continuous_stream_buffer) >= 20:
-                if self.processed_queue.full():
-                    continue
+            continuous_stream_buffer = self._drain_buffer(continuous_stream_buffer)
 
-                frame = continuous_stream_buffer[:20]
-                continuous_stream_buffer = continuous_stream_buffer[20:]
-                try:
-                    self.output_processed_frame(frame)
-                except queue.Full:
-                    print("Processed queue is full, skipping frame.")
-                    continuous_stream_buffer = frame + continuous_stream_buffer
-                    pass
-                
-                # Sanitize the final frame to ensure it's exactly the right size.
-    def output_processed_frame(self, frame: AudioSegment) -> None:
-        expected_bytes = self.SAMPLES_PER_FRAME * self.CHANNELS * self.SAMPLE_WIDTH
+    def _drain_buffer(self, buffer: AudioSegment, flush: bool = False) -> AudioSegment:
+        """Slice whole frames out of the buffer into the queue, and return what
+        didn't fit in a frame. Returns early if we're shutting down."""
+        while len(buffer) >= self.FRAME_MS:
+            frame, rest = buffer[:self.FRAME_MS], buffer[self.FRAME_MS:]
+            if not self.output_processed_frame(frame):
+                return buffer  # shutting down; don't lose the audio
+            buffer = rest
+
+        if flush and len(buffer) > 0:
+            self.output_processed_frame(buffer)
+            return AudioSegment.empty()
+        return buffer
+
+    def output_processed_frame(self, frame: AudioSegment) -> bool:
+        """Sanitize a frame to exactly one Opus frame and hand it to the
+        consumer, blocking while the queue is full.
+
+        Blocking is what paces the producer against the 20ms consumer. Polling
+        `processed_queue.full()` in a loop instead spins a core at 100%, which
+        is what this used to do."""
+        expected_bytes = self.SAMPLES_PER_FRAME * self.FRAME_WIDTH
         frame_data = frame.raw_data
         current_bytes = len(frame_data)
-        
+
         if current_bytes < expected_bytes:
             frame_data += b'\x00' * (expected_bytes - current_bytes)
         elif current_bytes > expected_bytes:
             frame_data = frame_data[:expected_bytes]
 
-        self.processed_queue.put(frame_data, block=False)
-    
+        while not self._end.is_set():
+            try:
+                self.processed_queue.put(frame_data, timeout=0.1)
+                return True
+            except queue.Full:
+                continue
+        return False
+
+    def _silence(self, frames: int) -> AudioSegment:
+        """A stereo silence bed to mix onto, cached between batches.
+
+        AudioSegment.silent() is mono, and a mono buffer reaching the encoder
+        gets read as interleaved stereo — half speed and wrong pitch.
+        """
+        cached = self._silence_cache
+        if cached is None or len(cached.raw_data) != frames * self.FRAME_WIDTH:
+            cached = AudioSegment(
+                b'\x00' * (frames * self.FRAME_WIDTH),
+                metadata={'channels': self.CHANNELS,
+                          'sample_width': self.SAMPLE_WIDTH,
+                          'frame_rate': self.SAMPLING_RATE,
+                          'frame_width': self.FRAME_WIDTH},
+            )
+            self._silence_cache = cached
+        return cached
+
+    def _read_frames(self, data: dict, frames: int) -> Optional[AudioSegment]:
+        """Take the next `frames` frames from a source and advance its cursor.
+
+        Sources are read through an integer cursor rather than being re-sliced.
+        `segment = segment[read:]` copies the entire remainder of the track on
+        every batch — for a 5 minute song that's ~57MB memcpy'd 10x a second.
+        """
+        segment: AudioSegment = data['segment']
+        start = data['pos']
+        end = min(start + frames, data['frames'])
+        if end <= start:
+            return None
+
+        width = segment.frame_width
+        chunk = segment._spawn(segment.raw_data[start * width:end * width])
+        data['pos'] = end
+        return chunk
+
     def _generate_processed_batch(self, duration_ms: int) -> Optional[AudioSegment]:
         """
         Generates a batch of mixed and processed audio by directly consuming the source
@@ -146,60 +208,69 @@ class AudioPlayer(threading.Thread):
         """
         with self._lock:
             if not self.userDict:
-                print("No audio sources available, waiting for new sources.")
                 return None
-            
-            # Determine the duration of source audio to read based on pitch
+
+            # Snapshot the live knobs so the batch is internally consistent even
+            # if /pitch or /volume lands halfway through mixing it.
+            pitch = self.pitch
+            volume = self.volume
+
+            # Determine how much source audio to read, based on pitch
             try:
-                new_sample_rate = self.SAMPLING_RATE * (2.0 ** (self.pitch - 1.0))
+                new_sample_rate = self.SAMPLING_RATE * (2.0 ** (pitch - 1.0))
                 speed_multiplier = new_sample_rate / self.SAMPLING_RATE
-                source_duration_to_process_ms = (duration_ms * speed_multiplier)
-            except (ValueError, ZeroDivisionError):
-                print(f"Invalid pitch value {self.pitch}, using default duration.")
-                source_duration_to_process_ms = float(duration_ms)
-            
+                # NaN/inf don't raise here, they just poison the frame count
+                if not math.isfinite(speed_multiplier) or speed_multiplier <= 0:
+                    raise ValueError("non-finite speed multiplier")
+            except (ValueError, ZeroDivisionError, OverflowError) as exc:
+                _log.warning(f"Invalid pitch value {pitch} ({exc}), falling back to 1.0x")
+                pitch, new_sample_rate, speed_multiplier = 1.0, float(self.SAMPLING_RATE), 1.0
+
+            # Work in whole frames: repeated millisecond slicing rounds each
+            # boundary independently and can drift off a sample.
+            frames_to_read = max(1, int(round(
+                self.SAMPLING_RATE * duration_ms * speed_multiplier / 1000)))
 
             # 1. Mix a batch from all sources.
-            mixed_batch = AudioSegment.silent(duration=source_duration_to_process_ms, frame_rate=self.SAMPLING_RATE)
-            users_to_remove = set()
-            
-            # Use a copy of the items to iterate over, allowing safe modification of the dictionary
+            chunks = []
             for user, data in list(self.userDict.items()):
-                segment: AudioSegment = data['segment']
+                chunk = self._read_frames(data, frames_to_read)
+                if chunk is not None:
+                    chunks.append(chunk)
+                if data['pos'] >= data['frames']:
+                    del self.userDict[user]
 
-                if len(segment) > 0:
-                    # Take a slice from the beginning of the source audio
-                    chunk_to_process = segment[:source_duration_to_process_ms]
-                    mixed_batch = mixed_batch.overlay(chunk_to_process)
-                    
-                    # ** THE DEFINITIVE FIX FOR SKIPPING **
-                    # Consume the source audio by replacing it with the remainder *immediately*.
-                    # This prevents state inconsistencies within the same batch.
-                    self.userDict[user]['segment'] = segment[source_duration_to_process_ms:]
-                
-                # Mark user for removal if their audio is fully consumed
-                if len(self.userDict[user]['segment']) == 0:
-                    users_to_remove.add(user)
-            
-            for user in users_to_remove:
-                del self.userDict[user]
-        
+        if not chunks:
+            return None
+
+        if len(chunks) == 1:
+            # The common case is a single source (just music, or just a clip).
+            # Overlaying it onto a silence bed would be a pointless full copy.
+            mixed_batch = chunks[0]
+        else:
+            # Sources can be different lengths near the end of a track, so mix
+            # onto a full-length bed — overlay() truncates to the base.
+            mixed_batch = self._silence(frames_to_read)
+            for chunk in chunks:
+                mixed_batch = mixed_batch.overlay(chunk)
+
         # 2. Apply effects to the entire batch at once.
         try:
             processed_batch = mixed_batch
-            if self.pitch != 1.0:
+            if pitch != 1.0:
                 pitched_sound = processed_batch._spawn(processed_batch.raw_data, overrides={'frame_rate': math.floor(new_sample_rate)})
                 processed_batch = pitched_sound.set_frame_rate(self.SAMPLING_RATE)
-            if self.volume != 100:
-                if self.volume > 0:
-                    gain = 20 * math.log10(self.volume / 100.0)
+            if volume != 100:
+                if volume > 0:
+                    gain = 20 * math.log10(volume / 100.0)
                     processed_batch = processed_batch.apply_gain(gain)
                 else:
-                    processed_batch = AudioSegment.silent(duration=len(processed_batch))
-            
+                    processed_batch = self._silence(
+                        len(processed_batch.raw_data) // self.FRAME_WIDTH)
+
             return processed_batch
         except Exception as e:
-            print(f"Error processing audio batch: {e}")
+            _log.error(f"Error processing audio batch: {e}")
             return None
 
     def _do_run(self) -> None:
@@ -227,7 +298,8 @@ class AudioPlayer(threading.Thread):
                 if was_idle:
                     startTimer = time.perf_counter()
                     loops = 0
-                    was_idle = False 
+                    was_idle = False
+                    self._speak(SpeakingState.voice)
 
                 loops += 1
                 opusData = self.encoder.encode(frame_data, self.SAMPLES_PER_FRAME)
@@ -238,11 +310,19 @@ class AudioPlayer(threading.Thread):
                 time.sleep(delay)
 
             except queue.Empty:
-                self.send_silence(1)
-                was_idle = True # <--- 3. Set the flag when the queue runs dry
+                # ---> 3. Set the flag when the queue runs dry <---
+                if not was_idle:
+                    # Five frames tells Discord's jitter buffer the stream
+                    # stopped; streaming silence forever instead just keeps the
+                    # speaking indicator lit and wastes packets.
+                    self.send_silence(5)
+                    self._speak(SpeakingState.none)
+                    was_idle = True
                 continue
             except Exception as e:
                 _log.error(f"Error in consumer loop: {e}")
+                # don't spin the thread if this keeps failing
+                time.sleep(self.DELAY)
 
     def run(self) -> None:
         try:
@@ -254,6 +334,19 @@ class AudioPlayer(threading.Thread):
             self._speak(SpeakingState.none)
             _log.info("Audio player consumer thread has finished.")
 
+    def _discard_prepared_audio(self) -> None:
+        """Throw away pre-mixed frames so a stop is heard now rather than after
+        the queue drains.
+
+        Only safe when nothing is left playing: queued frames are a mix of every
+        source, so dropping them to stop one would cut off the others too.
+        """
+        while True:
+            try:
+                self.processed_queue.get_nowait()
+            except queue.Empty:
+                return
+
     def stop(self):
         """Stops the player and clears all queues."""
         self._end.set()
@@ -261,14 +354,21 @@ class AudioPlayer(threading.Thread):
         with self._lock:
             self.userDict.clear()
             self.pausedUserDict.clear()
+        self._discard_prepared_audio()
         _log.info("AudioPlayer stop called.")
-    
+
     def stop_user(self, user: str):
         with self._lock:
             self.userDict.pop(user, None)
             self.pausedUserDict.pop(user, None)
-            
+            others_playing = bool(self.userDict)
+        if not others_playing:
+            self._discard_prepared_audio()
+
     def pause_user(self, user: str):
+        # Deliberately keeps the prepared frames: their audio is already past
+        # the source cursor, so discarding them would lose it on resume. The
+        # cost is a short tail after the click, not a gap.
         with self._lock:
             if user in self.userDict:
                 self.pausedUserDict[user] = self.userDict.pop(user)
@@ -304,14 +404,15 @@ class AudioPlayer(threading.Thread):
     def remaining_ms(self, user: str) -> Optional[int]:
         """Milliseconds of audio left for a source, or None if it isn't loaded.
 
-        The producer consumes each source segment in place as it mixes, so the
-        length of what's left is the playback position.
+        Sources are read through a cursor, so how much is left of one is also
+        how far into it we are.
         """
         with self._lock:
             data = self.userDict.get(user) or self.pausedUserDict.get(user)
             if data is None:
                 return None
-            return len(data['segment'])
+            frames_left = max(0, data['frames'] - data['pos'])
+            return int(frames_left * 1000 / self.SAMPLING_RATE)
 
     def change_pitch(self, newPitch: float):
         if not (0.25 <= newPitch <= 4.0):
@@ -324,18 +425,28 @@ class AudioPlayer(threading.Thread):
             self.pitch = newPitch
     
     def add_to_source_queue(self, newSound: AudioSegment, user: str):
-        with self._lock:
-            if user in self.pausedUserDict:
-                self.pausedUserDict.pop(user)
+        """Hand a source to the mixer, replacing whatever that identifier was
+        already playing.
 
-        newSound = newSound.set_frame_rate(48000).set_channels(2).set_sample_width(2)
-        newSound = effects.normalize(newSound)
+        Conversion and normalization walk the whole segment, so call this off
+        the event loop for anything longer than a soundboard clip.
+        """
+        newSound = (newSound.set_frame_rate(self.SAMPLING_RATE)
+                            .set_channels(self.CHANNELS)
+                            .set_sample_width(self.SAMPLE_WIDTH))
+        newSound = effects.normalize(newSound, headroom=self.MIX_HEADROOM_DB)
 
         _log.debug(f"Adding new audio source for user {user} with length {len(newSound)}ms.")
-        
+
+        source = {
+            'segment': newSound,
+            'pos': 0,
+            'frames': len(newSound.raw_data) // newSound.frame_width,
+        }
+
         with self._lock:
-            self._sources_exist.clear()
-            self.userDict[user] = {'segment': newSound}
+            self.pausedUserDict.pop(user, None)
+            self.userDict[user] = source
             self._sources_exist.set()
     
     def set_volume(self, volume: int):
@@ -404,7 +515,9 @@ async def init_voice_client(inter: discord.Interaction) -> bool:
 async def play(inter: discord.Interaction, sound: AudioSegment, identifier: str):
     guild = inter.guild
     if guild and await init_voice_client(inter):
-        audioClients[guild].add_to_source_queue(sound, identifier)
+        # normalizing a full song is a multi-hundred-ms walk over tens of MB;
+        # doing it inline stalls every other command on the bot
+        await asyncio.to_thread(audioClients[guild].add_to_source_queue, sound, identifier)
 
 def set_volume(inter: discord.Interaction, volume: int):
     guild = inter.guild
