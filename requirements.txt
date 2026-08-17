@@ -8,7 +8,12 @@ discord_py_slash_command==4.2.1
 Pillow==12.3.0
 python-dotenv==1.0.1
 # pytube==15.0.0
-pytubefix==8.13.1
+# 8.13.1 could only reach YouTube as ANDROID_VR: every other client either
+# failed to parse the current base.js or needed a proof-of-origin token it
+# couldn't mint. 10.x fixes both, which gives utils/youtube_client a second
+# client to fall back to when ANDROID_VR is refused. It pulls in
+# nodejs-wheel-binaries, so the token generator needs no system Node.
+pytubefix==10.11.0
 Requests==2.32.3
 google-generativeai
 discord.py-interactions[voice]==5.16.0

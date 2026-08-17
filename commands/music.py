@@ -3,7 +3,7 @@ from io import BytesIO
 import typing
 import requests
 from youtube_search import YoutubeSearch
-from pytubefix import YouTube
+from utils.youtube_client import open_video
 import os
 import discord
 from discord import Embed, app_commands
@@ -58,8 +58,8 @@ def parse_position(value: str) -> tuple[typing.Optional[float], bool]:
 
 
 def build_song(url, requester) -> "MusicQueueSong":
-    """Create a song and warm its metadata. pytubefix fetches lazily on first
-    attribute access, so touch it here — this runs in a worker thread."""
+    """Create a song, having proved YouTube will actually serve it. Several
+    blocking round trips, so this runs in a worker thread."""
     song = MusicQueueSong(url, requester)
     song.yt.title
     return song
@@ -122,11 +122,9 @@ class MusicQueueSong:
     def __init__(self, url, requester: discord.abc.User = None):
         self.url = url
         self.requester = requester
-        # The WEB client needs a poToken (botGuard/node) to get playable stream
-        # urls; without it YouTube returns streams with no url and pytubefix
-        # blows up with UnboundLocalError. ANDROID_VR (pytubefix's default)
-        # doesn't require one.
-        self.yt = YouTube(url)
+        # Which client YouTube will serve is a coin toss that changes minute to
+        # minute, so this retries across a couple of them — see utils/youtube_client.
+        self.yt = open_video(url)
 
 
 class MusicPlayerView(BaseView):
