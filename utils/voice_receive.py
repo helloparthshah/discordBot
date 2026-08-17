@@ -109,9 +109,10 @@ def drain_socket(voice_client, limit: int = 65536) -> int:
     """
     connection = getattr(voice_client, '_connection', None)
     sock = getattr(connection, 'socket', None)
-    # Only safe on the non-blocking socket discord.py creates; if it's anything
-    # else, recv could block the command forever.
-    if sock is None or sock.gettimeout() != 0:
+    # Missing before the handshake finishes — discord.py leaves `socket` as its
+    # MISSING sentinel, not None — and only the non-blocking socket it creates
+    # is safe to read here, since recv on a blocking one would hang the caller.
+    if not callable(getattr(sock, 'gettimeout', None)) or sock.gettimeout() != 0:
         return 0
 
     discarded = 0

@@ -11,6 +11,7 @@ from discord.ext import commands
 from utils.audio_player import (play, is_playing, is_paused, remaining_ms,
                                 seek as seek_source,
                                 stop_user, pause_user, resume_user)
+from utils import youtube_radio
 from pydub import AudioSegment
 from discord.ui.select import BaseSelect
 
@@ -18,11 +19,21 @@ music_queue = {}
 now_playing = {}
 # The live Now Playing view per guild, so /seek can redraw it.
 active_players = {}
+# Guilds where the queue running dry should pull in a similar song instead of
+# stopping, and what has already been played there so it doesn't go in circles.
+autoplay_on = {}
+history = {}
 
 # How often the Now Playing embed redraws its progress bar, in seconds.
 PROGRESS_REFRESH = 10
 # How far the ⏪ / ⏩ buttons jump.
 SEEK_STEP_MS = 15_000
+# How many songs back autoplay remembers. Long enough that a station doesn't
+# double back on itself, short enough that a few hours in it can revisit.
+HISTORY_LIMIT = 200
+# Candidates to try before giving up on a round of autoplay. Any one of them can
+# turn out to be age-gated or region-locked and fail to download.
+AUTOPLAY_ATTEMPTS = 4
 
 
 def parse_position(value: str) -> tuple[typing.Optional[float], bool]:
@@ -61,6 +72,17 @@ def format_duration(seconds) -> str:
     if hours:
         return f"{hours}:{minutes:02d}:{secs:02d}"
     return f"{minutes}:{secs:02d}"
+
+
+def remember(guild_id: int, video_id: str) -> None:
+    """Note that a song played here, so autoplay won't come back to it."""
+    if not video_id:
+        return
+    played = history.setdefault(guild_id, [])
+    if video_id in played:
+        played.remove(video_id)
+    played.append(video_id)
+    del played[:-HISTORY_LIMIT]
 
 
 def progress_bar(elapsed_ms: float, total_ms: float, length: int = 14) -> str:
@@ -137,6 +159,12 @@ class MusicPlayerView(BaseView):
         return max(0, self.total_ms - left)
 
     def render(self) -> Embed:
+        # The buttons are part of the drawing, so they're brought up to date
+        # here rather than by each caller: the very first send didn't sync them,
+        # and a player created mid-station showed a grey Autoplay button until
+        # the progress bar happened to tick.
+        self._sync_buttons()
+
         yt = self.song.yt
         upcoming = music_queue.get(self.origin.guild.id, [])
 
@@ -165,11 +193,18 @@ class MusicPlayerView(BaseView):
             embed.add_field(name="Up next",
                             value=f"[{nxt.yt.title}]({nxt.url}){more}",
                             inline=False)
+        elif autoplay_on.get(self.origin.guild.id) and not self.finished:
+            embed.add_field(name="Up next",
+                            value="♾  Autoplay — I'll find something similar",
+                            inline=False)
 
+        queued = f" · {len(upcoming)} in queue" if upcoming else ""
         if self.song.requester:
-            queued = f" · {len(upcoming)} in queue" if upcoming else ""
             embed.set_footer(text=f"Requested by {self.song.requester.display_name}{queued}",
                              icon_url=self.song.requester.display_avatar.url)
+        else:
+            # nobody asked for this one: autoplay picked it
+            embed.set_footer(text=f"Picked by autoplay{queued}")
         return embed
 
     def _sync_buttons(self) -> None:
@@ -180,6 +215,9 @@ class MusicPlayerView(BaseView):
             self.pause_resume.label, self.pause_resume.emoji = "Resume", "▶️"
         else:
             self.pause_resume.label, self.pause_resume.emoji = "Pause", "⏸"
+        on = autoplay_on.get(self.origin.guild.id, False)
+        self.autoplay.style = (discord.ButtonStyle.success if on
+                               else discord.ButtonStyle.secondary)
 
     def mark_finished(self) -> None:
         self.finished = True
@@ -187,7 +225,6 @@ class MusicPlayerView(BaseView):
 
     async def refresh(self, inter: discord.Interaction = None) -> None:
         """Redraw the message, either as a response to a click or on our own."""
-        self._sync_buttons()
         try:
             if inter is not None:
                 await inter.response.edit_message(embed=self.render(), view=self)
@@ -228,12 +265,32 @@ class MusicPlayerView(BaseView):
     @discord.ui.button(label="Stop", emoji="⏹", style=discord.ButtonStyle.danger)
     async def stop_playback(self, inter: discord.Interaction, button: discord.ui.Button):
         music_queue[self.origin.guild.id] = []
+        # Stop has to mean stop: leaving autoplay on would refill the queue.
+        autoplay_on[self.origin.guild.id] = False
         self.mark_finished()
         await self.refresh(inter)
         stop_user(self.origin, self.identifier)
 
+    @discord.ui.button(label="Autoplay", emoji="♾", row=1,
+                       style=discord.ButtonStyle.secondary)
+    async def autoplay(self, inter: discord.Interaction, button: discord.ui.Button):
+        guild_id = self.origin.guild.id
+        turned_on = not autoplay_on.get(guild_id, False)
+        autoplay_on[guild_id] = turned_on
+        await self.refresh(inter)
+        if turned_on and not is_playing(self.origin, self.identifier):
+            # Switched on after the last song ended: the loop that would have
+            # picked up the next one has already exited, so start a new one.
+            await self.cog.play_next(self.origin)
+
 
 class MusicCommands(commands.Cog):
+    def __init__(self, bot=None):
+        self.bot = bot
+        # Guilds whose play loop is already running. Between songs nothing is
+        # playing but the loop is still live, and a second one would race it.
+        self.advancing: set[int] = set()
+
     def generate_music_identitiy(self, inter: discord.Interaction):
         return str(inter.guild.id) + "-music"
     
@@ -253,12 +310,19 @@ class MusicCommands(commands.Cog):
     
     @app_commands.command(name="play", description="play a song!")
     @app_commands.describe(
-        link="The song to play"
+        link="The song to play",
+        autoplay="Keep going with similar songs when the queue runs out",
     )
     @app_commands.autocomplete(link=autocomplete_link)
-    async def play(self, inter: discord.Interaction, link: str):
+    async def play(self, inter: discord.Interaction, link: str,
+                   autoplay: typing.Optional[bool] = None):
         await inter.response.defer()
         try:
+            # left out, the setting stays as it was — otherwise every /play
+            # during a station would quietly switch it back off
+            if autoplay is not None:
+                autoplay_on[inter.guild.id] = autoplay
+
             # check if link is a youtube link
             if "youtube.com" not in link:
                 suffix = self.search_youtube(link)[0]['url_suffix'].split('&')[0]
@@ -268,8 +332,10 @@ class MusicCommands(commands.Cog):
             music_queue[inter.guild.id] = music_queue.get(inter.guild.id, [])
             music_queue[inter.guild.id].append(song)
 
-            # add to queue if already playing
-            if is_playing(inter, self.generate_music_identitiy(inter)):
+            # add to queue if something is already playing, or if the play loop
+            # is between songs — it will pick this up on its own
+            if (is_playing(inter, self.generate_music_identitiy(inter))
+                    or inter.guild.id in self.advancing):
                 position = len(music_queue[inter.guild.id])
                 embed = Embed(title=song.yt.title, url=song.url, colour=0x5865f2)
                 embed.set_author(name="＋  Added to queue")
@@ -286,12 +352,66 @@ class MusicCommands(commands.Cog):
             print(e)
             await inter.followup.send(f"Couldn't play that: {e}")
 
-    async def play_next(self,  inter: discord.Interaction):
-        current_song = music_queue[inter.guild.id].pop(0)
-        now_playing[inter.guild.id] = current_song
+    async def announce(self, inter: discord.Interaction, **kwargs):
+        """Post a message for this session.
+
+        An interaction's webhook token dies after 15 minutes and an autoplay
+        station outlives that many times over, so once it's stale — or if the
+        followup fails for any other reason — fall back to a plain message in
+        the channel.
+        """
+        age = (discord.utils.utcnow() - inter.created_at).total_seconds()
+        if age < 14 * 60:
+            try:
+                return await inter.followup.send(wait=True, **kwargs)
+            except discord.HTTPException:
+                pass
+        try:
+            return await inter.channel.send(**kwargs)
+        except (discord.HTTPException, AttributeError):
+            return None
+
+    async def play_next(self, inter: discord.Interaction):
+        """Work through the queue, extending it with similar songs if autoplay
+        is on.
+
+        A loop rather than a tail call: with autoplay this runs for hours, and
+        recursing per song kept every finished song's decoded audio alive in a
+        parent frame — tens of megabytes each.
+        """
+        guild_id = inter.guild.id
+        if guild_id in self.advancing:
+            return  # a loop is already draining this queue
+        self.advancing.add(guild_id)
+        try:
+            while True:
+                if not music_queue.get(guild_id):
+                    if not await self.extend_autoplay(inter):
+                        return
+                if not music_queue.get(guild_id):
+                    return
+
+                song = music_queue[guild_id].pop(0)
+                remember(guild_id, getattr(song.yt, 'video_id', None))
+                try:
+                    await self.play_song(inter, song)
+                except Exception as exc:
+                    # One bad track mustn't end the session. YouTube throttles
+                    # and 403s the occasional stream, and over a station that
+                    # runs for hours that's a matter of when, not if.
+                    print(f"Skipping {song.url}: {exc}")
+                    now_playing.pop(guild_id, None)
+                    await self.announce(
+                        inter, content=f"⚠  Couldn't play **{song.yt.title}**, "
+                                       f"skipping it.")
+        finally:
+            self.advancing.discard(guild_id)
+
+    async def play_song(self, inter: discord.Interaction, song: "MusicQueueSong"):
+        now_playing[inter.guild.id] = song
         identifier = self.generate_music_identitiy(inter)
 
-        yt = current_song.yt
+        yt = song.yt
 
         # extract only audio — both the download and the decode are blocking,
         # so keep them off the event loop or the buttons stop responding
@@ -304,9 +424,9 @@ class MusicCommands(commands.Cog):
             if os.path.exists(out_file):
                 os.remove(out_file)
 
-        view = MusicPlayerView(self, inter, current_song, len(audio))
+        view = MusicPlayerView(self, inter, song, len(audio))
         active_players[inter.guild.id] = view
-        view.message = await inter.followup.send(embed=view.render(), view=view, wait=True)
+        view.message = await self.announce(inter, embed=view.render(), view=view)
 
         await play(inter, audio, identifier)
         view.started = True
@@ -325,8 +445,37 @@ class MusicCommands(commands.Cog):
         if active_players.get(inter.guild.id) is view:
             del active_players[inter.guild.id]
 
-        if len(music_queue[inter.guild.id]) > 0:
-            await self.play_next(inter)
+    async def extend_autoplay(self, inter: discord.Interaction) -> bool:
+        """Queue one song like the last one. False when the station should end."""
+        guild_id = inter.guild.id
+        if not autoplay_on.get(guild_id):
+            return False
+        if inter.guild.voice_client is None:
+            # Kicked, /leave, or the idle timer. Don't drag the bot back in.
+            return False
+
+        played = history.get(guild_id) or []
+        if not played:
+            return False
+
+        candidates = await asyncio.to_thread(youtube_radio.pick_next,
+                                             played[-1], set(played))
+        for candidate in candidates[:AUTOPLAY_ATTEMPTS]:
+            try:
+                song = await asyncio.to_thread(build_song, candidate.url, None)
+            except Exception as exc:
+                # Age-gated, region-locked, or pulled since the mix was built.
+                print(f"Autoplay skipped {candidate.video_id}: {exc}")
+                remember(guild_id, candidate.video_id)
+                continue
+            music_queue.setdefault(guild_id, []).append(song)
+            return True
+
+        await self.announce(
+            inter, content="♾  Autoplay couldn't find another song to play, "
+                           "so I've stopped here.")
+        autoplay_on[guild_id] = False
+        return False
 
     @app_commands.command(name="skip", description="Skip the current song")
     async def skip(self, inter: discord.Interaction):
@@ -393,12 +542,20 @@ class MusicCommands(commands.Cog):
             total = sum(song.yt.length or 0 for song in upcoming)
             embed.set_footer(text=f"{format_duration(total)} of queued audio")
 
+        if autoplay_on.get(inter.guild.id):
+            embed.add_field(name="Autoplay",
+                            value="♾  On — similar songs keep coming when the "
+                                  "queue empties",
+                            inline=False)
+
         await inter.followup.send(embed=embed)
 
     @app_commands.command(name="stop", description="Stop the audio")
     async def stop(self, inter: discord.Interaction):
         await inter.response.defer()
         music_queue[inter.guild.id] = []
+        # otherwise autoplay refills the queue and it never actually stops
+        autoplay_on[inter.guild.id] = False
         stop_user(inter, self.generate_music_identitiy(inter))
         await inter.followup.send('⏹  Stopped the audio')
 

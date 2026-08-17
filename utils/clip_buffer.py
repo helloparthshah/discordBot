@@ -156,6 +156,10 @@ def start(voice_client) -> bool:
         return False
     if not isinstance(voice_client, voice_recv.VoiceRecvClient):
         return False
+    if not voice_client.is_connected():
+        # Still handshaking: there's no socket yet and listen() would refuse.
+        # The maintenance loop tries again once the connection is up.
+        return False
     if voice_client.is_listening():
         return False  # a recording or a call has it
 
