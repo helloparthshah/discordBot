@@ -3,8 +3,9 @@ from io import BytesIO
 import typing
 import requests
 from youtube_search import YoutubeSearch
-from utils.youtube_client import open_video
+from utils.youtube_client import fetch_audio, open_video
 import os
+import tempfile
 import discord
 from discord import Embed, app_commands
 from discord.ext import commands
@@ -34,6 +35,10 @@ HISTORY_LIMIT = 200
 # Candidates to try before giving up on a round of autoplay. Any one of them can
 # turn out to be age-gated or region-locked and fail to download.
 AUTOPLAY_ATTEMPTS = 4
+# Where a song lands while it is being decoded. Not the working directory: a
+# download that dies leaves the file behind, and these were turning up as
+# untracked junk in the repo.
+DOWNLOAD_DIR = tempfile.gettempdir()
 
 
 def parse_position(value: str) -> tuple[typing.Optional[float], bool]:
@@ -411,11 +416,16 @@ class MusicCommands(commands.Cog):
 
         yt = song.yt
 
-        # extract only audio — both the download and the decode are blocking,
-        # so keep them off the event loop or the buttons stop responding
-        video = await asyncio.to_thread(lambda: yt.streams.get_audio_only())
-        out_file = await asyncio.to_thread(video.download, output_path='.')
+        # Named for the guild and the video rather than for the title: two
+        # guilds can want the same song at once, and YouTube titles are full of
+        # characters Windows won't put in a filename.
+        out_file = os.path.join(DOWNLOAD_DIR, f"{inter.guild.id}-{yt.video_id}.m4a")
         try:
+            # extract only audio — both the download and the decode are
+            # blocking, so keep them off the event loop or the buttons stop
+            # responding. fetch_audio may hand back a different handle, having
+            # reopened the video on a client that would actually serve it.
+            song.yt = await asyncio.to_thread(fetch_audio, yt, out_file)
             audio = await asyncio.to_thread(AudioSegment.from_file, out_file)
         finally:
             # pydub has the whole thing in memory now
