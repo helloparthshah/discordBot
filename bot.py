@@ -5,41 +5,9 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 import traceback
-import random
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
-USER_ID_THUMBS_DOWN = 375859366395641858
-USER_ID_CHUS = 347605620012351488
-# CHUS reactions are an in-joke for one server only
-CHUS_GUILD_ID = 1030766503949254656
-CHUS_REACTION_RESPONSES = [
-    "CHUS",
-    "MUTH",
-    "CHUTIYA",
-    "67",
-    "HARSHIL",
-    "APT. 184",
-]
-
-KEYCAP_DIGIT_EMOJI = {
-    "0": "0️⃣",
-    "1": "1️⃣",
-    "2": "2️⃣",
-    "3": "3️⃣",
-    "4": "4️⃣",
-    "5": "5️⃣",
-    "6": "6️⃣",
-    "7": "7️⃣",
-    "8": "8️⃣",
-    "9": "9️⃣",
-}
-
-SYMBOL_REACTION_EMOJI = {
-    ".": "▪️",
-}
-
-REGIONAL_INDICATOR_A = ord("🇦")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -48,19 +16,6 @@ bot = commands.Bot(command_prefix=commands.when_mentioned, intents=intents)
 if not discord.opus.is_loaded:
     discord.opus.load_opus()
 
-
-def to_reaction_emojis(text: str) -> list[str]:
-    emojis = []
-    for char in text.upper():
-        if "A" <= char <= "Z":
-            emojis.append(chr(REGIONAL_INDICATOR_A + (ord(char) - ord("A"))))
-        elif char in KEYCAP_DIGIT_EMOJI:
-            emojis.append(KEYCAP_DIGIT_EMOJI[char])
-        elif char in SYMBOL_REACTION_EMOJI:
-            emojis.append(SYMBOL_REACTION_EMOJI[char])
-        elif char == " ":
-            continue
-    return emojis
 
 @bot.event
 async def on_ready() -> None:
@@ -109,21 +64,6 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
     traceback.print_exception(error)
     if not ctx.responded:
         await ctx.send_message("Something went wrong.")
-
-
-@bot.event
-async def on_message(message: discord.Message) -> None:
-    if message.author.bot:
-        return
-
-    if message.author.id == USER_ID_THUMBS_DOWN:
-        await message.add_reaction("👎")
-    elif message.author.id == USER_ID_CHUS and message.guild and message.guild.id == CHUS_GUILD_ID:
-        chosen_response = random.choice(CHUS_REACTION_RESPONSES)
-        for emoji in to_reaction_emojis(chosen_response):
-            await message.add_reaction(emoji)
-
-    await bot.process_commands(message)
 
 
 # @listen()
